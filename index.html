@@ -1,6 +1,27 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<!-- Firebase & Firestore Module Integration -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAn0EQeQD8DOgCL8Zhu3hnPdqYCfoB2Jg",
+    authDomain: "frc-task-tracker.firebaseapp.com",
+    projectId: "frc-task-tracker",
+    storageBucket: "frc-task-tracker.appspot.com",
+    messagingSenderId: "503202571446",
+    appId: "1:503202571446:web:874025ff0a503d3ed3217"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // Expose `db` globally so your existing React/Vanilla functions can access it easily
+  window.db = db;
+  window.dbOperations = { collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc };
+</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Command Weekly Task Tracker (b7)</title>
