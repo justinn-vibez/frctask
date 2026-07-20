@@ -75,8 +75,9 @@ const PRIORITIES = [
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // ---------- localStorage persistence ----------
-// ---------- Firestore Cloud Persistence ----------
-// We will sync tasks and labels directly to your Firebase Firestore database
+function lsGet(key) { try { const r = window.localStorage.getItem(key); return r ? JSON.parse(r) : null; } catch (e) { return null; } }
+function lsSet(key, value) { try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
+
 // ---------- Helpers ----------
 function parseDue(dueStr) { const [y, m, d] = dueStr.split("-").map(Number); return new Date(y, m - 1, d); }
 function fmtDue(date) { return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0"); }
@@ -218,8 +219,8 @@ function GuidedTour({ onComplete }) {
             ))}
           </div>
           <button onClick={() => step < steps.length - 1 ? setStep(s => s + 1) : onComplete()} 
-                  className="font-mono text-sm font-bold tracking-widest px-6 py-2.5 rounded transition-transform active:scale-95" 
-                  style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
+                className="font-mono text-sm font-bold tracking-widest px-6 py-2.5 rounded transition-transform active:scale-95" 
+                style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
             {step < steps.length - 1 ? "NEXT ➔" : "GET TO WORK"}
           </button>
         </div>
@@ -421,7 +422,6 @@ function CommandWeeklyTaskTracker() {
       // Sync changes to Firestore cloud database
       if (window.db && window.dbOperations) {
         const { collection, doc, setDoc, deleteDoc } = window.dbOperations;
-        // For simplicity in this vanilla setup, we sync the array items to Firestore docs
         for (const t of next) {
           try {
             await setDoc(doc(window.db, "tasks", String(t.id)), t);
