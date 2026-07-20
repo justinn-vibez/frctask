@@ -4,7 +4,7 @@
 <!-- Firebase & Firestore Module Integration -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-  import { getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  import { getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyAn0EQeQD8DOgCL8Zhu3hnPdqYCfoB2Jg",
@@ -14,6 +14,13 @@
     messagingSenderId: "503202571446",
     appId: "1:503202571446:web:874025ff0a503d3ed3217"
   };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  window.db = db;
+  window.dbOperations = { collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc };
+</script>
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
@@ -414,21 +421,21 @@ function CommandWeeklyTaskTracker() {
       setShowTour(false);
   }
 
-  const commit = useCallback(async (updater) => {
-    setTasks(async (prev) => { 
+  const commit = useCallback((updater) => {
+    setTasks((prev) => { 
       const next = typeof updater === "function" ? updater(prev) : updater; 
       lsSet(TASKS_KEY, next); 
       
-      // Sync changes to Firestore cloud database
+      // Background sync to Firestore cloud database
       if (window.db && window.dbOperations) {
-        const { collection, doc, setDoc, deleteDoc } = window.dbOperations;
-        for (const t of next) {
+        const { doc, setDoc } = window.dbOperations;
+        next.forEach(async (t) => {
           try {
             await setDoc(doc(window.db, "tasks", String(t.id)), t);
           } catch (e) {
             console.error("Error saving task to cloud:", e);
           }
-        }
+        });
       }
       return next; 
     });
