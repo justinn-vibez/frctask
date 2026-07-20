@@ -18,16 +18,9 @@
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
 
+  // Expose `db` globally so your existing React functions can access it easily
   window.db = db;
   window.dbOperations = { collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc };
-</script>
-
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-
-  // Expose `db` globally so your existing React/Vanilla functions can access it easily
-  window.db = db;
-  window.dbOperations = { collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc };
 </script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
