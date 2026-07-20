@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Weekly Task Tracker (b7)</title>
+
+<!-- ======== CDN DEPENDENCIES ======== -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+
+<style>
+  html, body { background-color: #020617; margin: 0; color: #e2e8f0; font-family: ui-sans-serif, system-ui, sans-serif; }
+  @keyframes cwtt-fall { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(105vh) rotate(720deg); opacity: 0.7; } }
+  @keyframes cwtt-ring-glow { 0%, 100% { filter: drop-shadow(0 0 8px #22e0c988); } 50% { filter: drop-shadow(0 0 22px #22e0c9); } }
+  @keyframes cwtt-timer-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  @keyframes cwtt-fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
+  .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .tour-card { animation: cwtt-fade-in 0.4s ease-out forwards; }
+  @media (prefers-reduced-motion: reduce) { .cwtt-anim, .tour-card { animation: none !important; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+const {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList,
+} = Recharts;
+
+// ---------- Constants & Colors ----------
+const TASKS_KEY = "weekly_tracker_tasks_b7";
+const LABELS_KEY = "weekly_tracker_labels_b7";
+const USER_NAME_KEY = "weekly_tracker_username_b7";
+const TOUR_KEY = "weekly_tracker_tour_b7";
+
+const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
+const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
+
+const PRIORITIES = [
+  { id: "low", label: "LOW", color: "#475569" },
+  { id: "medium", label: "MEDIUM", color: "#a855f7" },
+  { id: "high", label: "HIGH", color: ACCENT.amber },
+  { id: "asap", label: "DO A FUCKIN SAP", color: ACCENT.rose },
+];
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+// ---------- localStorage persistence ----------
+function lsGet(key) { try { const r = window.localStorage.getItem(key); return r ? JSON.parse(r) : null; } catch (e) { return null; } }
+function lsSet(key, value) { try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
+
+// ---------- Helpers ----------
+function parseDue(dueStr) { const [y, m, d] = dueStr.split("-").map(Number); return new Date(y, m - 1, d); }
+function fmtDue(date) { return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0"); }
+function daysUntil(dueStr) {
+  if (!dueStr) return null;
+  const due = parseDue(dueStr), now = new Date();
+  return Math.round((due - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
+}
+function dueColor(dueStr) {
+  const days = daysUntil(dueStr);
+  if (days === null) return "#64748b";
+  if (days >= 5) return ACCENT.teal;
+  if (days >= 3) return ACCENT.amber;
+  return ACCENT.rose;
+}
+function dueLabelTxt(dueStr) {
+  const days = daysUntil(dueStr);
+  if (days === null) return "NO DUE DATE";
+  const dateTxt = parseDue(dueStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (days < 0) return dateTxt + " · OVERDUE " + Math.abs(days) + "D";
+  if (days === 0) return dateTxt + " · DUE TODAY";
+  if (days === 1) return dateTxt + " · 1 DAY LEFT";
+  return dateTxt + " · " + days + " DAYS OUT";
+}
+function fmtStamp(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " · " + d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+}
+function dayKey(date) { return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0"); }
+function getGreeting() {
+  const hr = new Date().getHours();
+  if (hr < 12) return "Good morning";
+  if (hr < 18) return "Good afternoon";
+  return "Good evening";
+}
+function weekBounds() {
+  const now = new Date(), start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+  const end = new Date(start); end.setDate(start.getDate() + 7);
+  return [start, end];
+}
+function inActiveWeek(task) {
+  if (!task.due) return true;
+  return parseDue(task.due) < weekBounds()[1];
+}
+function isDueTodayOrOverdue(task) { return task.due ? daysUntil(task.due) <= 0 : false; }
+function leadDays(task) {
+  if (!task.completedAt || !task.due) return null;
+  const d = parseDue(task.due);
+  return (new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59) - new Date(task.completedAt)) / 86400000;
+}
+function completedOnTime(task) {
+  const lead = leadDays(task);
+  return task.completedAt && !task.due ? true : (lead === null ? null : lead >= 0);
+}
+function elapsedMs(task, nowTs) {
+  const base = task.timeMs || 0;
+  return task.runningSince ? base + Math.max(0, (nowTs || Date.now()) - new Date(task.runningSince).getTime()) : base;
+}
+function fmtDuration(ms) {
+  const t = Math.floor(ms / 1000), h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  return (h > 0 ? h + ":" : "") + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+}
+function fmtMinutes(ms) {
+  const min = ms / 60000;
+  return min >= 60 ? (min / 60).toFixed(1) + "h" : Math.round(min) + "m";
+}
+
+// ---------- UI Components ----------
+function ModalOverlay({ children, zIndex = "z-50" }) {
+  return <div className={`fixed inset-0 ${zIndex} flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm`}>{children}</div>;
+}
+function ConfirmModal({ title, message, onConfirm, onCancel, confirmText = "YES", confirmColor = ACCENT.rose }) {
+  return (
+    <ModalOverlay zIndex="z-[60]">
+      <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-sm shadow-2xl">
+        <h3 className="text-lg font-bold text-white mb-2">{title}</h3>
+        <p className="text-sm text-slate-400 mb-6 leading-relaxed">{message}</p>
+        <div className="flex gap-3 justify-end">
+          <button onClick={onCancel} className="font-mono text-xs tracking-wider px-4 py-2 rounded bg-slate-800 text-slate-300 border border-slate-600 hover:bg-slate-700">CANCEL</button>
+          <button onClick={onConfirm} className="font-mono text-xs font-bold tracking-wider px-4 py-2 rounded text-slate-950" style={{ backgroundColor: confirmColor }}>{confirmText}</button>
+        </div>
+      </div>
+    </ModalOverlay>
+  );
+}
+function Confetti() {
+  const pieces = useMemo(() => Array.from({ length: 80 }, (_, i) => {
+    const colors = [ACCENT.teal, ACCENT.amber, ACCENT.rose, "#ffffff"];
+    return { id: i, left: Math.random() * 100, delay: Math.random() * 0.8, duration: 2 + Math.random() * 2, size: 5 + Math.random() * 8, color: colors[i % colors.length], rotate: Math.random() * 360 };
+  }), []);
+  return (
+    <div className="pointer-events-none fixed inset-0 overflow-hidden z-[100]">
+      {pieces.map((p) => (
+        <div key={p.id} style={{ position: "absolute", top: "-20px", left: p.left + "%", width: p.size + "px", height: p.size * 0.5 + "px", backgroundColor: p.color, transform: "rotate(" + p.rotate + "deg)", animation: "cwtt-fall " + p.duration + "s linear " + p.delay + "s forwards", opacity: 0.95 }} />
+      ))}
+    </div>
+  );
+}
+function ProgressRing({ pct, completed, total, size = 170, stroke = 13 }) {
+  const r = (size - stroke) / 2, circ = 2 * Math.PI * r, offset = circ - (pct / 100) * circ, full = pct === 100 && total > 0;
+  return (
+    <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="cwtt-anim" style={{ transform: "rotate(-90deg)", filter: full ? "drop-shadow(0 0 10px " + ACCENT.teal + ")" : "none", animation: full ? "cwtt-ring-glow 1.6s ease-in-out infinite" : "none", borderRadius: "50%" }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#1e293b" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={ACCENT.teal} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={offset} style={{ transition: "stroke-dashoffset 0.7s ease-out" }} />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="font-bold text-white tabular-nums" style={{ fontSize: size * 0.25 + 'px' }}>{pct}%</span>
+        <span className="font-mono tracking-widest text-slate-500 mt-1" style={{ fontSize: size * 0.06 + 'px' }}>{completed}/{total} THIS WEEK</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Tour Overlay ----------
+function GuidedTour({ onComplete }) {
+  const [step, setStep] = useState(0);
+  const steps = [
+    { title: "Welcome to Red Bird Readiness.", text: "This dashboard was built to streamline tasks, kill the bottlenecks, and ditch the scattered sticky notes. Let's take a quick 3-step tour.", icon: "🚀" },
+    { title: "The Active Board", text: "Create tasks, prioritize them, set due dates, and tag them with custom labels. Hit 'Move to Next Week' to instantly push a task out by 7 days without hurting your weekly progress.", icon: "📋" },
+    { title: "The Stopwatch", text: "Hit ▶ START when you begin a task, and ✓ FINISH when you're done. The analytics engine will build charts based on your clocked time to expose trends where our hours actually go.", icon: "⏱" },
+    { title: "TV Display Mode", text: "Click the 📺 TV MODE button at the top right to strip away the clutter. It blows up the progress ring and organizes the daily hit-list perfectly for the shop's big monitor.", icon: "📺" }
+  ];
+
+  return (
+    <ModalOverlay zIndex="z-[70]">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl p-8 w-full max-w-lg shadow-2xl tour-card relative overflow-hidden">
+        <div className="absolute top-0 left-0 h-1 bg-slate-800 w-full">
+            <div className="h-full transition-all duration-300" style={{ width: `${((step + 1) / steps.length) * 100}%`, backgroundColor: ACCENT.teal }} />
+        </div>
+        <div className="text-5xl mb-6 mt-2">{steps[step].icon}</div>
+        <h2 className="text-2xl font-bold text-white mb-3 tracking-tight">{steps[step].title}</h2>
+        <p className="text-slate-400 mb-8 leading-relaxed text-lg">{steps[step].text}</p>
+        <div className="flex justify-between items-center">
+          <div className="flex gap-2">
+            {steps.map((_, i) => (
+                <div key={i} className={`w-2 h-2 rounded-full transition-colors ${i === step ? 'bg-teal-400' : 'bg-slate-700'}`} />
+            ))}
+          </div>
+          <button onClick={() => step < steps.length - 1 ? setStep(s => s + 1) : onComplete()} 
+                  className="font-mono text-sm font-bold tracking-widest px-6 py-2.5 rounded transition-transform active:scale-95" 
+                  style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
+            {step < steps.length - 1 ? "NEXT ➔" : "GET TO WORK"}
+          </button>
+        </div>
+      </div>
+    </ModalOverlay>
+  );
+}
+
+// ---------- Chart shared bits ----------
+const chartTooltipStyle = { backgroundColor: "#0f172a", border: "1px solid #334155", borderRadius: "6px", fontSize: "12px", fontFamily: "monospace", color: "#e2e8f0" };
+const axisTick = { fill: "#64748b", fontSize: 10, fontFamily: "monospace" };
+const axisTickLight = { fill: "#94a3b8", fontSize: 10, fontFamily: "monospace" };
+
+function ChartCard({ title, subtitle, children, wide = false, action = null }) {
+  return (
+    <section className={"bg-slate-900 border border-slate-800 rounded-lg p-4 " + (wide ? "md:col-span-2" : "")}>
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <h3 className="font-mono text-xs tracking-widest text-slate-400">{title}</h3>
+        {action}
+      </div>
+      {subtitle && <p className="text-[11px] text-slate-600 mb-3 leading-snug">{subtitle}</p>}
+      {children}
+    </section>
+  );
+}
+function KpiCard({ label, value, sub, color = "#ffffff" }) {
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-lg p-3">
+      <p className="font-mono text-[9px] tracking-widest text-slate-500 mb-1">{label}</p>
+      <p className="text-xl font-bold tabular-nums leading-none" style={{ color }}>{value}</p>
+      {sub && <p className="font-mono text-[9px] tracking-wider text-slate-600 mt-1.5">{sub}</p>}
+    </div>
+  );
+}
+// ---------- Per-task Notes Panel ----------
+function TaskNotes({ task, onSaveNote, compact = false }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(task.note && task.note.text ? task.note.text : "");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (!open) { setDraft(task.note && task.note.text ? task.note.text : ""); setDirty(false); }
+  }, [task.note, open]);
+
+  const hasNote = !!(task.note && task.note.text && task.note.text.trim());
+  const save = () => { onSaveNote(task.id, draft); setDirty(false); };
+
+  return (
+    <div className="mt-2 w-full">
+      <button onClick={() => setOpen((o) => !o)} className="font-mono text-[10px] tracking-widest flex items-center gap-1.5 transition-colors" style={{ color: hasNote ? ACCENT.teal : "#64748b" }}>
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2 1.5h8v7l-2 2H2v-9z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><path d="M4 4.5h4M4 6.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>
+        {hasNote ? "NOTES" : "ADD NOTE"}
+        {hasNote && task.note.updatedAt && <span className="text-slate-600 normal-case">· updated {fmtStamp(task.note.updatedAt)}</span>}
+        <span className="text-slate-600">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="mt-2 bg-slate-950 border border-slate-800 rounded p-3">
+          <textarea value={draft} onChange={(e) => { setDraft(e.target.value); setDirty(true); }} placeholder={compact ? "Closeout notes, references, follow-ups…" : "Details, references, blockers, passdown info…"} rows={compact ? 3 : 4} className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white placeholder-slate-500 leading-relaxed focus:outline-none focus:border-slate-500 resize-y" />
+          <div className="flex items-center justify-between mt-2">
+            <span className="font-mono text-[10px] tracking-widest" style={{ color: dirty ? ACCENT.amber : "#475569" }}>{dirty ? "● UNSAVED" : task.note && task.note.updatedAt ? "SAVED " + fmtStamp(task.note.updatedAt) : "NO NOTE YET"}</span>
+            <button onClick={save} disabled={!dirty} className="font-mono text-[10px] font-bold tracking-widest px-4 py-1.5 rounded transition-transform active:scale-95 disabled:opacity-40" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>SAVE NOTE</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }) {
+  const [creating, setCreating] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [draftColor, setDraftColor] = useState(LABEL_PALETTE[0]);
+
+  const handleSelect = (e) => {
+    if (e.target.value === "__new__") { setCreating(true); setDraftName(""); setDraftColor(LABEL_PALETTE[0]); }
+    else onChange(e.target.value);
+  };
+  
+  const confirmNew = () => {
+    const name = draftName.trim();
+    if (!name) { setCreating(false); return; }
+    onCreateLabel({ name, color: draftColor });
+    onChange(name);
+    setCreating(false);
+  };
+
+  if (creating) {
+    return (
+      <div className="flex flex-col gap-2 bg-slate-800 p-2 rounded border border-slate-600">
+        <div className="flex gap-1.5">
+          <input value={draftName} onChange={(e) => setDraftName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") confirmNew(); if (e.key === "Escape") setCreating(false); }} autoFocus placeholder="Label name…" className="flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm text-white focus:outline-none" />
+          <button onClick={confirmNew} className="font-mono text-[10px] font-bold tracking-widest px-3 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>OK</button>
+          <button onClick={() => setCreating(false)} className="font-mono text-[10px] tracking-widest px-2 rounded bg-slate-700 text-slate-300">✕</button>
+        </div>
+        <div className="flex gap-1 justify-between mt-1">
+            {LABEL_PALETTE.map(c => <button key={c} onClick={() => setDraftColor(c)} className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110" style={{ backgroundColor: c, borderColor: draftColor === c ? '#fff' : 'transparent' }} />)}
+        </div>
+      </div>
+    );
+  }
+  
+  const activeLabel = labels.find(l => l.name === value);
+  return (
+  <select value={value || ""} onChange={handleSelect} className={"bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-slate-500 " + (compact ? "py-2" : "py-2")} style={{ borderLeft: activeLabel ? `4px solid ${activeLabel.color}` : '' }}>
+  {labels.length === 0 && <option value="" disabled>No labels yet</option>}
+  {labels.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
+  <option value="__new__">＋ Create new label…</option>
+</select>
+  );
+}
+
+// ---------- Main App ----------
+function CommandWeeklyTaskTracker() {
+  const [userName, setUserName] = useState("");
+  const [askingName, setAskingName] = useState(false);
+  const [draftUserName, setDraftUserName] = useState("");
+  const [showTour, setShowTour] = useState(false);
+
+  const [tasks, setTasks] = useState([]);
+  const [labels, setLabels] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [tab, setTab] = useState("tasks");
+  const [chartRange, setChartRange] = useState(14);
+  const [nowTs, setNowTs] = useState(Date.now());
+  const prevPct = useRef(0);
+  const [celebrate, setCelebrate] = useState(false);
+  
+  const [tvMode, setTvMode] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null); 
+  const [editingTask, setEditingTask] = useState(null); 
+  const [managingLabels, setManagingLabels] = useState(false);
+  
+  // New Manager Label State
+  const [newManagerLabel, setNewManagerLabel] = useState("");
+  const [newManagerColor, setNewManagerColor] = useState(LABEL_PALETTE[0]);
+  
+  const [newText, setNewText] = useState("");
+  const [newLabel, setNewLabel] = useState("");
+  const [newPriority, setNewPriority] = useState("medium");
+  const [newDue, setNewDue] = useState("");
+  const [errorAlert, setErrorAlert] = useState(null);
+  const [attemptedSubmit, setAttemptedSubmit] = useState(false);
+  const [newNote, setNewNote] = useState("");
+  const [writingNewNote, setWritingNewNote] = useState(false);
+
+  useEffect(() => {
+    const storedName = lsGet(USER_NAME_KEY);
+    if (storedName) setUserName(storedName);
+    else setAskingName(true);
+
+    const storedLabels = lsGet(LABELS_KEY);
+    const activeLabels = Array.isArray(storedLabels) ? storedLabels : [];
+    setLabels(activeLabels);
+    if (activeLabels.length > 0) setNewLabel(activeLabels[0].name);
+
+    const storedTasks = lsGet(TASKS_KEY);
+    if (Array.isArray(storedTasks)) setTasks(storedTasks);
+    setLoaded(true);
+  }, []);
+
+  const saveUserName = () => {
+    const trimmed = draftUserName.trim();
+    if (!trimmed) return;
+    setUserName(trimmed);
+    lsSet(USER_NAME_KEY, trimmed);
+    setAskingName(false);
+    
+    if (!lsGet(TOUR_KEY)) {
+        setShowTour(true);
+    }
+  };
+
+  const completeTour = () => {
+      lsSet(TOUR_KEY, true);
+      setShowTour(false);
+  }
+
+  const commit = useCallback((updater) => {
+    setTasks((prev) => { const next = typeof updater === "function" ? updater(prev) : updater; lsSet(TASKS_KEY, next); return next; });
+  }, []);
+
+  const anyRunning = tasks.some((t) => t.runningSince && !t.done);
+  useEffect(() => { if (!anyRunning) return; const id = setInterval(() => setNowTs(Date.now()), 1000); return () => clearInterval(id); }, [anyRunning]);
+
+  const weekTasks = tasks.filter(inActiveWeek);
+  const weekTotal = weekTasks.length, weekCompleted = weekTasks.filter((t) => t.done).length;
+  const pct = weekTotal === 0 ? 0 : Math.round((weekCompleted / weekTotal) * 100);
+
+  useEffect(() => {
+    if (loaded && pct === 100 && prevPct.current < 100 && weekTotal > 0) {
+      setCelebrate(true); setTimeout(() => setCelebrate(false), 4500);
+    }
+    prevPct.current = pct;
+  }, [pct, loaded, weekTotal]);
+
+  const addTask = () => {
+    setAttemptedSubmit(true);
+    if (!newText.trim() || !newDue) {
+      setErrorAlert("Both a Task Name and a Due Date are required to create a task.");
+      setTimeout(() => setErrorAlert(null), 5000);
+      return;
+    }
+    commit((prev) => [...prev, { 
+        id: "t-" + Date.now(), text: newText.trim(), label: newLabel || "", priority: newPriority, due: newDue, 
+        done: false, completedAt: null, note: newNote.trim() ? { text: newNote.trim(), updatedAt: new Date().toISOString() } : null, 
+        timeMs: 0, runningSince: null 
+    }]);
+    setNewText(""); setNewDue(""); setNewPriority("medium"); setNewNote(""); setAttemptedSubmit(false);
+  };
+
+  const toggleTimer = (id) => commit((prev) => prev.map((t) => t.id !== id ? t : (t.runningSince ? { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null } : { ...t, runningSince: new Date().toISOString() })));
+  
+  const triggerAction = (type, id) => setConfirmAction({ type, id });
+  
+  const executeConfirmAction = () => {
+    if (!confirmAction) return;
+    const { type, id } = confirmAction;
+    if (type === 'delete') commit((prev) => prev.filter((t) => t.id !== id));
+    else if (type === 'finish' || type === 'complete') {
+        const completedTime = new Date().toISOString();
+        commit((prev) => prev.map((t) => t.id !== id ? t : { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null, done: true, completedAt: completedTime }));
+    }
+    else if (type === 'reset') {
+      window.localStorage.clear();
+      setTasks([]); setLabels([]); setUserName(""); setDraftUserName(""); setTab("tasks"); setAskingName(true); setShowTour(false);
+    }
+    setConfirmAction(null);
+  };
+
+  const uncheckTask = (id) => { commit((prev) => prev.map((t) => t.id === id ? { ...t, done: false, completedAt: null } : t)); };
+
+  const moveToNextWeek = (id) => commit((prev) => prev.map((t) => {
+      if (t.id !== id) return t;
+      const base = t.due ? parseDue(t.due) : new Date();
+      base.setDate(base.getDate() + 7);
+      return { ...t, due: fmtDue(base) };
+  }));
+
+  const saveEdit = () => {
+    if (!editingTask || !editingTask.text.trim()) return;
+    commit((prev) => prev.map((t) => t.id === editingTask.id ? { ...editingTask, text: editingTask.text.trim() } : t ));
+    setEditingTask(null);
+  };
+
+  const priorityMeta = (id) => PRIORITIES.find((p) => p.id === id) || PRIORITIES[1];
+  const getLabelColor = (name) => { const l = labels.find(x => x.name === name); return l ? l.color : "#64748b"; };
+
+  const activeTasks = tasks.filter((t) => !t.done).sort((a, b) => {
+      const aw = inActiveWeek(a) ? 0 : 1, bw = inActiveWeek(b) ? 0 : 1;
+      if (aw !== bw) return aw - bw; 
+      const da = a.due || "9999-12-31", db = b.due || "9999-12-31";
+      if (da !== db) return da < db ? -1 : 1;
+      const priorityWeight = { asap: 0, high: 1, medium: 2, low: 3 };
+      return priorityWeight[a.priority] - priorityWeight[b.priority];
+  });
+
+  const historyTasks = tasks.filter((t) => t.done).sort((a, b) => ((b.completedAt || "") < (a.completedAt || "") ? -1 : 1));
+
+  // --- LABEL MANAGEMENT ---
+  const saveLabelEdits = (oldName, newName, newColor) => {
+      const trimmed = newName.trim();
+      if (!trimmed) return;
+      setLabels(prev => {
+          const next = prev.map(l => l.name === oldName ? { name: trimmed, color: newColor } : l);
+          lsSet(LABELS_KEY, next);
+          if (newLabel === oldName) setNewLabel(trimmed);
+          return next;
+      });
+      commit(prev => prev.map(t => t.label === oldName ? { ...t, label: trimmed } : t));
+  };
+  const deleteLabel = (nameToDelete) => {
+      setLabels(prev => {
+          const next = prev.filter(l => l.name !== nameToDelete);
+          lsSet(LABELS_KEY, next);
+          if (newLabel === nameToDelete) setNewLabel(next.length > 0 ? next[0].name : "");
+          return next;
+      });
+      commit(prev => prev.map(t => t.label === nameToDelete ? { ...t, label: "" } : t));
+  };
+  const createLabel = (newLabelObj) => {
+    setLabels((prev) => {
+      if (prev.some((l) => l.name.toLowerCase() === newLabelObj.name.toLowerCase())) return prev;
+      const next = [...prev, newLabelObj];
+      lsSet(LABELS_KEY, next);
+      if(!newLabel) setNewLabel(newLabelObj.name);
+      return next;
+    });
+  };
+  const saveTaskNote = (id, text) => {
+    const trimmed = text.trim();
+    commit((prev) => prev.map((t) => t.id === id ? { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString() } : null } : t ));
+  };
+
+  // --- ANALYTICS ENGINE (Fully Restored) ---
+  const analytics = useMemo(() => {
+    const done = tasks.filter((t) => t.done && t.completedAt);
+    const now = new Date();
+
+    const byDay30 = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      byDay30.push({ key: dayKey(d), label: d.toLocaleDateString("en-US", { month: "numeric", day: "numeric" }), count: 0 });
+    }
+    const dayMap = {};
+    byDay30.forEach((d) => { dayMap[d.key] = d; });
+    done.forEach((t) => {
+      const key = dayKey(new Date(t.completedAt));
+      if (dayMap[key]) dayMap[key].count += 1;
+    });
+    byDay30.forEach((d, i) => {
+      const w = byDay30.slice(Math.max(0, i - 6), i + 1);
+      d.avg7 = +(w.reduce((s, x) => s + x.count, 0) / w.length).toFixed(2);
+    });
+
+    let onTime = 0, late = 0;
+    const dated = done.filter((t) => t.due);
+    dated.forEach((t) => (completedOnTime(t) ? onTime++ : late++));
+    const leads = dated.map((t) => leadDays(t));
+    const sortedLeads = [...leads].sort((a, b) => a - b);
+    const medianLead = sortedLeads.length ? sortedLeads.length % 2 ? sortedLeads[(sortedLeads.length - 1) / 2] : (sortedLeads[sortedLeads.length / 2 - 1] + sortedLeads[sortedLeads.length / 2]) / 2 : null;
+
+    const leadPerTask = dated.sort((a, b) => ((a.completedAt || "") < (b.completedAt || "") ? -1 : 1)).slice(-12).map((t) => {
+        const lead = +leadDays(t).toFixed(1);
+        return { name: t.text.length > 22 ? t.text.slice(0, 22) + "…" : t.text, fullName: t.text, lead, fill: lead >= 0 ? ACCENT.teal : ACCENT.rose };
+    });
+
+    const priorityReliability = PRIORITIES.map((p) => {
+      const group = dated.filter((t) => t.priority === p.id);
+      const pOnTime = group.filter((t) => completedOnTime(t)).length;
+      return { label: p.label === "DO A FUCKIN SAP" ? "ASAP" : p.label, onTime: pOnTime, late: group.length - pOnTime };
+    });
+
+    const byWeekday = WEEKDAYS.map((w) => ({ label: w, count: 0 }));
+    done.forEach((t) => { byWeekday[(new Date(t.completedAt).getDay() + 6) % 7].count += 1; });
+    const busiestDay = byWeekday.reduce((a, b) => (b.count > a.count ? b : a), byWeekday[0]);
+
+    const blocks = ["00–03", "03–06", "06–09", "09–12", "12–15", "15–18", "18–21", "21–24"];
+    const byHourBlock = blocks.map((b) => ({ label: b, count: 0 }));
+    done.forEach((t) => { byHourBlock[Math.floor(new Date(t.completedAt).getHours() / 3)].count += 1; });
+    const peakBlock = byHourBlock.reduce((a, b) => (b.count > a.count ? b : a), byHourBlock[0]);
+
+    const doneDays = new Set(done.map((t) => dayKey(new Date(t.completedAt))));
+    let currentStreak = 0;
+    for (let i = 0; ; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      if (doneDays.has(dayKey(d))) currentStreak++;
+      else if (i === 0) continue;
+      else break;
+    }
+    let bestStreak = 0, run = 0, prevDate = null;
+    [...doneDays].sort().forEach((k) => {
+      const [y, m, d] = k.split("-").map(Number);
+      const cur = new Date(y, m - 1, d);
+      run = prevDate && (cur - prevDate) / 86400000 === 1 ? run + 1 : 1;
+      bestStreak = Math.max(bestStreak, run);
+      prevDate = cur;
+    });
+
+    const last7 = byDay30.slice(-7).reduce((s, d) => s + d.count, 0);
+    const prev7 = byDay30.slice(-14, -7).reduce((s, d) => s + d.count, 0);
+    const weekDelta = prev7 > 0 ? Math.round(((last7 - prev7) / prev7) * 100) : null;
+
+    const timed = done.filter((t) => (t.timeMs || 0) > 0);
+    const labelGroups = {};
+    timed.forEach((t) => {
+      const l = t.label || "Unlabeled";
+      if (!labelGroups[l]) labelGroups[l] = { totalMs: 0, count: 0 };
+      labelGroups[l].totalMs += t.timeMs;
+      labelGroups[l].count += 1;
+    });
+    const timeByLabel = Object.keys(labelGroups).map((l) => ({ label: l, avgMin: +(labelGroups[l].totalMs / labelGroups[l].count / 60000).toFixed(1), totalMin: +(labelGroups[l].totalMs / 60000).toFixed(1), count: labelGroups[l].count })).sort((a, b) => b.avgMin - a.avgMin);
+    const totalTrackedMs = timed.reduce((s, t) => s + t.timeMs, 0);
+    const slowest = timeByLabel.length ? timeByLabel[0] : null;
+
+    return {
+      byDay30, onTime, late, medianLead, leadPerTask, priorityReliability, byWeekday, busiestDay, byHourBlock, peakBlock,
+      currentStreak, bestStreak, last7, prev7, weekDelta, totalDone: done.length, timeByLabel, totalTrackedMs, timedCount: timed.length, slowest,
+    };
+  }, [tasks]);
+
+  // --- Modals Render ---
+  const renderModals = () => {
+    if (askingName) {
+      return (
+        <ModalOverlay>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-8 w-full max-w-md shadow-2xl text-center">
+            <h2 className="text-2xl font-bold text-white mb-2 tracking-tight">Welcome to Task Ops</h2>
+            <p className="text-sm text-slate-400 mb-6">Enter your name or rank to personalize your dashboard.</p>
+            <input autoFocus value={draftUserName} onChange={(e) => setDraftUserName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveUserName()} placeholder="e.g. AZ2 Smith" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white text-center mb-6 focus:outline-none focus:border-teal-400 transition-colors" />
+            <button onClick={saveUserName} className="w-full font-mono text-sm font-bold tracking-widest px-4 py-3 rounded text-slate-950 transition-transform active:scale-95 hover:brightness-110" style={{ backgroundColor: ACCENT.teal }}>INITIALIZE DASHBOARD</button>
+          </div>
+        </ModalOverlay>
+      );
+    }
+    if (showTour) return <GuidedTour onComplete={completeTour} />;
+    if (writingNewNote) {
+        return (
+            <ModalOverlay>
+                <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-lg shadow-2xl">
+                    <h3 className="text-sm font-mono tracking-widest text-slate-400 mb-4">PRE-DRAFT TASK NOTE</h3>
+                    <textarea value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Details, references, blockers, passdown info…" rows={4} className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white placeholder-slate-500 leading-relaxed focus:outline-none focus:border-slate-500 resize-y mb-4" autoFocus />
+                    <div className="flex justify-end gap-3">
+                        <button onClick={() => { setNewNote(""); setWritingNewNote(false); }} className="font-mono text-xs tracking-wider px-4 py-2 rounded bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">CLEAR DRAFT</button>
+                        <button onClick={() => setWritingNewNote(false)} className="font-mono text-xs font-bold tracking-wider px-4 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.teal }}>SAVE TO DRAFT</button>
+                    </div>
+                </div>
+            </ModalOverlay>
+        );
+    }
+    
+    if (confirmAction) {
+      let title = "Confirm Action", msg = "Are you sure?", btn = "YES", color = ACCENT.rose;
+      if (confirmAction.type === 'delete') { title = "Delete Task"; msg = "This task will be permanently removed."; }
+      if (confirmAction.type === 'complete' || confirmAction.type === 'finish') { title = "Complete Task"; msg = "Mark this task as finished and freeze the timer?"; btn = "COMPLETE"; color = ACCENT.teal; }
+      if (confirmAction.type === 'reset') { title = "NUCLEAR RESET"; msg = "Are you absolutely sure? This will wipe all tasks, history, custom labels, and analytics permanently."; btn = "NUKE IT"; }
+      return <ConfirmModal title={title} message={msg} onConfirm={executeConfirmAction} onCancel={() => setConfirmAction(null)} confirmText={btn} confirmColor={color} />;
+    }
+    
+    if (managingLabels) {
+       return (
+         <ModalOverlay>
+             <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-md shadow-2xl">
+                 <h3 className="text-sm font-mono tracking-widest text-slate-400 mb-4 flex justify-between items-center">
+                     LABEL MANAGER
+                     <button onClick={() => setManagingLabels(false)} className="text-slate-500 hover:text-white">✕</button>
+                 </h3>
+                 
+                 {/* CREATION SUITE */}
+                 <div className="mb-6 p-4 bg-slate-800 rounded border border-slate-700">
+                    <h4 className="font-mono text-[10px] tracking-widest text-slate-400 mb-2">CREATE NEW LABEL</h4>
+                    <div className="flex gap-2 mb-3">
+                        <input value={newManagerLabel} onChange={e=>setNewManagerLabel(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { createLabel({name: newManagerLabel, color: newManagerColor}); setNewManagerLabel(""); } }} className="flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none" placeholder="Label name..." />
+                        <button onClick={() => { const n = newManagerLabel.trim(); if(n) { createLabel({name: n, color: newManagerColor}); setNewManagerLabel(""); } }} className="font-mono text-[10px] font-bold tracking-widest px-3 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>ADD</button>
+                    </div>
+                    <div className="flex gap-1 justify-between">
+                        {LABEL_PALETTE.map(c => <button key={c} onClick={() => setNewManagerColor(c)} className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110" style={{ backgroundColor: c, borderColor: newManagerColor === c ? '#fff' : 'transparent' }} />)}
+                    </div>
+                 </div>
+
+                 {labels.length === 0 ? (
+                     <p className="text-slate-500 text-sm text-center py-6 font-mono border-t border-slate-800">No custom labels exist yet.</p>
+                 ) : (
+                     <div className="space-y-4 max-h-60 overflow-y-auto hide-scrollbar pr-2 border-t border-slate-800 pt-4">
+                         {labels.map(l => (
+                             <div key={l.name} className="flex flex-col gap-2 p-3 bg-slate-800 rounded border border-slate-700">
+                                 <div className="flex gap-2 items-center">
+                                     <input defaultValue={l.name} onBlur={(e) => saveLabelEdits(l.name, e.target.value, l.color)} className="flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none" />
+                                     <button onClick={() => deleteLabel(l.name)} className="p-1.5 text-slate-500 hover:text-rose-500 hover:bg-slate-700 rounded"><svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
+                                 </div>
+                                 <div className="flex gap-2 justify-between">
+                                     {LABEL_PALETTE.map(c => <button key={c} onClick={() => saveLabelEdits(l.name, l.name, c)} className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110" style={{ backgroundColor: c, borderColor: l.color === c ? '#fff' : 'transparent' }} />)}
+                                 </div>
+                             </div>
+                         ))}
+                     </div>
+                 )}
+                 <div className="mt-6 flex justify-end">
+                     <button onClick={() => setManagingLabels(false)} className="font-mono text-xs tracking-wider px-6 py-2 rounded bg-slate-800 text-white border border-slate-600 hover:bg-slate-700">DONE</button>
+                 </div>
+             </div>
+         </ModalOverlay>
+       )
+    }
+
+    if (editingTask) {
+      return (
+        <ModalOverlay>
+          <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-lg shadow-2xl">
+            <h3 className="text-sm font-mono tracking-widest text-slate-400 mb-4">EDIT TASK</h3>
+            <div className="flex flex-col gap-4">
+              <input value={editingTask.text} onChange={(e) => setEditingTask({...editingTask, text: e.target.value})} className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white focus:outline-none focus:border-slate-400" />
+              <div className="flex flex-col sm:flex-row gap-3">
+                <select value={editingTask.label} onChange={(e) => setEditingTask({...editingTask, label: e.target.value})} className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none" style={{ borderLeft: `4px solid ${getLabelColor(editingTask.label)}` }}>
+                  <option value="">No Label</option>
+                  {labels.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
+                </select>
+                <select value={editingTask.priority} onChange={(e) => setEditingTask({...editingTask, priority: e.target.value})} className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none">
+                  {PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                </select>
+                <input type="date" value={editingTask.due || ""} onChange={(e) => setEditingTask({...editingTask, due: e.target.value})} className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => setEditingTask(null)} className="font-mono text-xs tracking-wider px-4 py-2 rounded bg-slate-800 text-slate-400 border border-slate-700">CANCEL</button>
+              <button onClick={saveEdit} className="font-mono text-xs font-bold tracking-wider px-4 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.teal }}>SAVE CHANGES</button>
+            </div>
+          </div>
+        </ModalOverlay>
+      );
+    }
+    return null;
+  };
+
+  // --- TV DISPLAY MODE ---
+  if (tvMode) {
+      const immediateTasks = activeTasks.filter(t => isDueTodayOrOverdue(t) || t.priority === 'asap');
+      const standardTasks = activeTasks.filter(t => !isDueTodayOrOverdue(t) && t.priority !== 'asap');
+      const highTasks = standardTasks.filter(t => t.priority === 'high');
+      const medTasks = standardTasks.filter(t => t.priority === 'medium');
+      const lowTasks = standardTasks.filter(t => t.priority === 'low');
+
+      const renderTVTask = (t) => {
+          const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label), running = !!t.runningSince;
+          return (
+            <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex items-center gap-6" style={{ borderLeft: "8px solid " + pm.color }}>
+                <div className="flex-1">
+                    <p className="text-xl sm:text-2xl text-white mb-3 leading-snug">{t.text}</p>
+                    <div className="flex gap-3 items-center">
+                        {t.label && <span className="font-mono text-sm tracking-widest px-3 py-1 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
+                        <span className="font-mono text-sm tracking-widest px-3 py-1 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a" }}>{pm.label}</span>
+                        {t.due && <span className="font-mono text-xs tracking-widest px-2 py-1 rounded border border-slate-700 text-slate-400">{dueLabelTxt(t.due)}</span>}
+                    </div>
+                </div>
+                {(elapsedMs(t, nowTs) > 0 || running) && <div className="shrink-0 text-3xl font-mono tabular-nums font-bold" style={{ color: running ? ACCENT.amber : "#475569" }}>⏱ {fmtDuration(elapsedMs(t, nowTs))}</div>}
+            </div>
+          );
+      };
+
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-200 p-8 flex flex-col h-screen">
+          {celebrate && <Confetti />}
+          {errorAlert && (
+          <div className="fixed top-8 right-8 z-[80] bg-rose-600 text-white px-6 py-4 rounded-lg shadow-2xl animate-pulse font-mono text-sm tracking-widest border border-rose-400">
+              {errorAlert}
+          </div>
+      )}
+          <header className="flex justify-between items-center mb-10 shrink-0">
+            <div>
+              <p className="font-mono text-lg tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC JACKSONVILLE — TASK OPS</p>
+              <h1 className="text-5xl font-bold text-white tracking-tight">ACTIVE BOARD</h1>
+            </div>
+            <button onClick={() => setTvMode(false)} className="font-mono text-sm tracking-widest px-6 py-3 rounded border border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800">EXIT DISPLAY MODE</button>
+          </header>
+          
+          <div className="flex-1 flex gap-10 min-h-0 overflow-hidden">
+             <div className="w-1/3 flex flex-col items-center justify-center bg-slate-900 border border-slate-800 rounded-3xl p-8 shrink-0">
+                 <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} size={420} stroke={28} />
+                 <p className="mt-12 text-2xl font-mono text-slate-500 tracking-widest text-center">WEEKLY<br/>COMPLETION</p>
+             </div>
+             
+             <div className="w-2/3 overflow-y-auto hide-scrollbar pr-4 pb-12">
+                 <h2 className="text-2xl font-mono tracking-widest mb-6 border-b pb-4" style={{ color: ACCENT.rose, borderColor: ACCENT.rose+"44" }}>IMMEDIATE ACTION</h2>
+                 {immediateTasks.length === 0 ? <div className="p-8 border border-dashed border-slate-800 rounded-2xl text-center text-slate-600 text-lg font-mono tracking-widest mb-8">NO IMMEDIATE TASKS PENDING</div> : <div className="space-y-4 mb-8">{immediateTasks.map(renderTVTask)}</div>}
+                 
+                 {highTasks.length > 0 && (
+                     <>
+                        <h2 className="text-lg font-mono tracking-widest mt-12 mb-4 border-b pb-2" style={{ color: ACCENT.amber, borderColor: ACCENT.amber+"44" }}>ON THE HORIZON — HIGH PRIORITY</h2>
+                        <div className="space-y-4 mb-8">{highTasks.map(renderTVTask)}</div>
+                     </>
+                 )}
+                 {medTasks.length > 0 && (
+                     <>
+                        <h2 className="text-lg font-mono tracking-widest mt-12 mb-4 border-b pb-2 text-purple-400 border-purple-900">ON THE HORIZON — MEDIUM PRIORITY</h2>
+                        <div className="space-y-4 mb-8">{medTasks.map(renderTVTask)}</div>
+                     </>
+                 )}
+                 {lowTasks.length > 0 && (
+                     <>
+                        <h2 className="text-lg font-mono tracking-widest mt-12 mb-4 border-b pb-2 text-slate-500 border-slate-800">ON THE HORIZON — LOW PRIORITY</h2>
+                        <div className="space-y-4 mb-8 opacity-75">{lowTasks.map(renderTVTask)}</div>
+                     </>
+                 )}
+             </div>
+          </div>
+        </div>
+      );
+  }
+
+  // --- NORMAL VIEW ---
+  if (!loaded) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><p className="text-slate-500 font-mono tracking-widest animate-pulse">LOADING…</p></div>;
+
+  const onTimeRate = analytics.onTime + analytics.late > 0 ? Math.round((analytics.onTime / (analytics.onTime + analytics.late)) * 100) : null;
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-200 px-4 py-8 sm:px-8 flex flex-col">
+      {celebrate && <Confetti />}
+      {renderModals()}
+
+      <div className="max-w-4xl mx-auto w-full flex-1">
+        <header className="mb-8 flex justify-between items-end">
+          <div>
+              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC JACKSONVILLE — TASK OPS</p>
+              <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
+              {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
+          </div>
+          <button onClick={() => setTvMode(true)} className="font-mono text-[10px] tracking-widest px-3 py-1.5 rounded border border-slate-700 bg-slate-900 text-slate-400 hover:text-white transition-colors hidden sm:block">📺 TV MODE</button>
+        </header>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-lg p-6 mb-6 flex flex-col sm:flex-row items-center gap-6">
+          <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} />
+          <div className="text-center sm:text-left">
+            <h2 className="font-mono text-sm tracking-widest text-slate-400 mb-2">ACTIVE WEEK PROGRESS: <span className="text-white font-bold">{pct}% COMPLETED</span></h2>
+            <p className="text-sm text-slate-500">{pct === 100 && weekTotal > 0 ? <span className="font-mono tracking-widest" style={{ color: ACCENT.teal }}>✓ ALL TASKS SECURED.</span> : `Knock out ${weekTotal - weekCompleted} more tasks to close out this week.`}</p>
+          </div>
+        </section>
+
+        <nav className="flex gap-1 mb-6 bg-slate-900 border border-slate-800 rounded-lg p-1">
+          <button onClick={() => setTab("tasks")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "tasks" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ACTIVE TASKS ({activeTasks.length})</button>
+          <button onClick={() => setTab("history")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "history" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>HISTORY & ANALYTICS ({historyTasks.length})</button>
+        </nav>
+
+        {tab === "tasks" && (
+          <React.Fragment>
+            <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6">
+  <div className="flex flex-col lg:flex-row gap-3">
+    <input value={newText} onChange={(e) => setNewText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder="Add a new task…" className={"flex-1 bg-slate-800 border rounded px-3 py-2 text-sm text-white focus:outline-none " + (attemptedSubmit && !newText.trim() ? "border-rose-500" : "border-slate-700")} />
+    <div className="flex flex-col sm:flex-row gap-3">
+      <LabelPicker labels={labels} value={newLabel} onChange={setNewLabel} onCreateLabel={createLabel} />
+      <select value={newPriority} onChange={(e) => setNewPriority(e.target.value)} className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white focus:outline-none">
+        {PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+      </select>
+      <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className={"bg-slate-800 border rounded px-3 py-2 text-sm text-white focus:outline-none " + (attemptedSubmit && !newDue ? "border-rose-500" : "border-slate-700")} />
+      <button onClick={() => setWritingNewNote(true)} className="font-mono text-xs font-bold tracking-widest px-3 py-2 rounded transition-colors" style={{ backgroundColor: newNote.trim() ? ACCENT.teal + "22" : "transparent", color: newNote.trim() ? ACCENT.teal : "#94a3b8", border: "1px solid " + (newNote.trim() ? ACCENT.teal + "66" : "#475569") }}>{newNote.trim() ? "📝 NOTE ADDED" : "📝 ADD NOTE"}</button>
+      <button onClick={addTask} className="font-mono text-xs font-bold tracking-widest px-5 py-2 rounded active:scale-95 transition-transform" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>+ ADD</button>
+    </div>
+  </div>
+</section>
+
+            <section className="space-y-3">
+              {activeTasks.length === 0 && <div className="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center text-slate-500 font-mono text-sm tracking-widest">BOARD CLEAR. CHECK HISTORY & ANALYTICS.</div>}
+              {activeTasks.map((t) => {
+                const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label), running = !!t.runningSince, ms = elapsedMs(t, nowTs), thisWeek = inActiveWeek(t);
+                return (
+                  <div key={t.id} className={"bg-slate-900 border border-slate-800 rounded-lg p-4 " + (!thisWeek ? "opacity-70" : "")} style={{ borderLeft: "4px solid " + pm.color }}>
+                    <div className="flex items-start gap-3">
+                      <button onClick={() => triggerAction('complete', t.id)} className="mt-0.5 w-6 h-6 shrink-0 rounded border-2 flex items-center justify-center transition-colors hover:border-slate-400" style={{ borderColor: "#475569" }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm sm:text-base text-white">{t.text}</p>
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
+                          <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
+                          {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
+                          <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
+                          <button onClick={() => toggleTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={running ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{running ? "❚❚ PAUSE" : ms > 0 ? "▶ RESUME" : "▶ START"}</button>
+                          <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓ FINISH</button>
+                        </div>
+                        <TaskNotes task={t} onSaveNote={saveTaskNote} />
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <button onClick={() => moveToNextWeek(t.id)} title="Push out 7 days" className="p-2 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 3.5v8l5-4-5-4zM8 3.5v8l5-4-5-4z" fill="currentColor" /></svg></button>
+                        <button onClick={() => setEditingTask(t)} title="Edit task" className="p-2 rounded text-slate-500 hover:text-white hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10.5 2.5l2 2L5 12l-2.5.5L3 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg></button>
+                        <button onClick={() => triggerAction('delete', t.id)} title="Delete task" className="p-2 rounded text-slate-500 hover:text-rose-500 hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+          </React.Fragment>
+        )}
+
+        {tab === "history" && (
+            <React.Fragment>
+              {analytics.totalDone > 0 ? (
+                <React.Fragment>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+                    <KpiCard label="COMPLETED" value={analytics.totalDone} sub="LIFETIME" />
+                    <KpiCard label="ON-TIME RATE" value={onTimeRate !== null ? onTimeRate + "%" : "—"} sub={analytics.onTime + " ON TIME / " + analytics.late + " LATE"} color={onTimeRate === null ? "#64748b" : onTimeRate >= 80 ? ACCENT.teal : onTimeRate >= 50 ? ACCENT.amber : ACCENT.rose} />
+                    <KpiCard label="MEDIAN LEAD" value={analytics.medianLead !== null ? Math.abs(analytics.medianLead).toFixed(1) + "d" : "—"} sub={analytics.medianLead === null ? "NO DATED TASKS" : analytics.medianLead >= 0 ? "EARLY (TYPICAL)" : "LATE (TYPICAL)"} color={analytics.medianLead === null ? "#64748b" : analytics.medianLead >= 0 ? ACCENT.teal : ACCENT.rose} />
+                    <KpiCard label="TIME TRACKED" value={analytics.totalTrackedMs > 0 ? fmtMinutes(analytics.totalTrackedMs) : "—"} sub={analytics.timedCount + " CLOCKED TASK" + (analytics.timedCount === 1 ? "" : "S")} color={analytics.totalTrackedMs > 0 ? ACCENT.teal : "#64748b"} />
+                    <KpiCard label="STREAK" value={analytics.currentStreak + "d"} sub={"BEST: " + analytics.bestStreak + "d"} color={analytics.currentStreak > 0 ? ACCENT.teal : "#64748b"} />
+                    <KpiCard label="PEAK WINDOW" value={analytics.peakBlock.count > 0 ? analytics.peakBlock.label : "—"} sub={analytics.busiestDay.count > 0 ? "BUSIEST DAY: " + analytics.busiestDay.label.toUpperCase() : "NO PATTERN YET"} />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <ChartCard wide title="TIME EFFICIENCY BY CATEGORY" subtitle="Average (teal) and total (amber) clocked minutes per label.">
+                      {analytics.timeByLabel.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={220}>
+                          <BarChart data={analytics.timeByLabel} margin={{ top: 16, right: 4, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                            <XAxis dataKey="label" tick={axisTickLight} />
+                            <YAxis tick={axisTick} label={{ value: "minutes", angle: -90, position: "insideLeft", fill: "#475569", fontSize: 9, fontFamily: "monospace" }} />
+                            <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v, name) => [v + " min", name]} labelFormatter={(label, payload) => { const p = payload && payload[0] && payload[0].payload; return p ? label + " (" + p.count + " task" + (p.count === 1 ? "" : "s") + ")" : label; }} />
+                            <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
+                            <Bar dataKey="avgMin" name="Avg per task" fill={ACCENT.teal} radius={[3, 3, 0, 0]}>
+                              <LabelList dataKey="avgMin" position="top" formatter={(v) => v + "m"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
+                            </Bar>
+                            <Bar dataKey="totalMin" name="Total" fill={ACCENT.amber} radius={[3, 3, 0, 0]}>
+                              <LabelList dataKey="totalMin" position="top" formatter={(v) => v + "m"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <p className="text-xs text-slate-600 font-mono py-6 text-center">Clock time on a task with ▶ START, then ✓ FINISH it.</p>
+                      )}
+                      {analytics.slowest && (
+                        <p className="font-mono text-[10px] tracking-widest text-slate-500 mt-2">HEAVIEST CATEGORY: <span style={{ color: ACCENT.amber }}>#{analytics.slowest.label}</span> AT {analytics.slowest.avgMin} MIN AVG</p>
+                      )}
+                    </ChartCard>
+
+                    <ChartCard wide title={"DAILY THROUGHPUT — LAST " + chartRange + " DAYS"} subtitle="Bars: tasks completed per day. Line: 7-day rolling average." action={<div className="flex gap-1">{[14, 30].map((r) => (<button key={r} onClick={() => setChartRange(r)} className="font-mono text-[10px] font-bold tracking-widest px-2.5 py-1 rounded" style={chartRange === r ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b", border: "1px solid #334155" }}>{r}D</button>))}</div>}>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <ComposedChart data={analytics.byDay30.slice(-chartRange)} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                          <XAxis dataKey="label" tick={axisTick} interval={chartRange === 30 ? 3 : 1} />
+                          <YAxis allowDecimals={false} tick={axisTick} />
+                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
+                          <Bar dataKey="count" name="Completed" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
+                          <Line type="monotone" dataKey="avg7" name="7-day avg" stroke={ACCENT.amber} strokeWidth={2} dot={false} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
+
+                    <ChartCard wide title="LEAD TIME PER TASK — LAST 12 DATED COMPLETIONS" subtitle="Days ahead of (teal) or behind (rose) the deadline.">
+                      {analytics.leadPerTask.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={Math.max(160, analytics.leadPerTask.length * 28 + 40)}>
+                          <BarChart data={analytics.leadPerTask} layout="vertical" margin={{ top: 4, right: 36, left: 8, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                            <XAxis type="number" tick={axisTick} />
+                            <YAxis type="category" dataKey="name" width={150} tick={axisTickLight} />
+                            <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v) => [v >= 0 ? v + "d early" : Math.abs(v) + "d late", "Lead"]} labelFormatter={(label, payload) => (payload && payload[0] && payload[0].payload.fullName) || label} />
+                            <ReferenceLine x={0} stroke="#475569" strokeWidth={1.5} />
+                            <Bar dataKey="lead" radius={[0, 3, 3, 0]}>
+                              {analytics.leadPerTask.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                              <LabelList dataKey="lead" position="right" formatter={(v) => (v > 0 ? "+" : "") + v + "d"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <p className="text-xs text-slate-600 font-mono py-6 text-center">Complete a task that has a due date to populate this chart.</p>
+                      )}
+                    </ChartCard>
+
+                    <ChartCard title="RELIABILITY BY PRIORITY" subtitle="On-time (teal) vs late (rose) per tier.">
+                      <ResponsiveContainer width="100%" height={190}>
+                        <BarChart data={analytics.priorityReliability} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                          <XAxis dataKey="label" tick={axisTick} />
+                          <YAxis allowDecimals={false} tick={axisTick} />
+                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
+                          <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
+                          <Bar dataKey="onTime" name="On time" stackId="r" fill={ACCENT.teal} />
+                          <Bar dataKey="late" name="Late" stackId="r" fill={ACCENT.rose} radius={[3, 3, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
+
+                    <ChartCard title="COMPLETIONS BY DAY OF WEEK" subtitle="Busiest day highlighted amber.">
+                      <ResponsiveContainer width="100%" height={190}>
+                        <BarChart data={analytics.byWeekday} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                          <XAxis dataKey="label" tick={axisTick} />
+                          <YAxis allowDecimals={false} tick={axisTick} />
+                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
+                          <Bar dataKey="count" name="Completed" radius={[3, 3, 0, 0]}>
+                            {analytics.byWeekday.map((d, i) => (
+                              <Cell key={i} fill={d.label === analytics.busiestDay.label && d.count > 0 ? ACCENT.amber : ACCENT.teal} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
+
+                    <ChartCard wide title="COMPLETIONS BY TIME OF DAY" subtitle="3-hour blocks. Peak block highlighted amber.">
+                      <ResponsiveContainer width="100%" height={170}>
+                        <BarChart data={analytics.byHourBlock} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                          <XAxis dataKey="label" tick={axisTick} />
+                          <YAxis allowDecimals={false} tick={axisTick} />
+                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
+                          <Bar dataKey="count" name="Completed" radius={[3, 3, 0, 0]}>
+                            {analytics.byHourBlock.map((d, i) => (
+                              <Cell key={i} fill={d.label === analytics.peakBlock.label && d.count > 0 ? ACCENT.amber : ACCENT.teal} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
+                  </div>
+                </React.Fragment>
+              ) : (
+                <div className="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center mb-6">
+                  <p className="font-mono text-sm text-slate-500 tracking-widest">
+                    NO COMPLETED TASKS YET. THE DASHBOARD BUILDS AS YOU CHECK THINGS OFF.
+                  </p>
+                </div>
+              )}
+
+              <section className="space-y-2 mb-10">
+                  <h3 className="font-mono text-xs tracking-widest text-slate-400 mb-2">COMPLETION LOG</h3>
+                  {historyTasks.map((t) => {
+                    const pm = priorityMeta(t.priority);
+                    return (
+                      <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-lg p-3 flex items-start gap-3" style={{ borderLeft: "4px solid " + pm.color + "55" }}>
+                        <button onClick={() => uncheckTask(t.id)} className="mt-0.5 w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center" style={{ borderColor: ACCENT.teal, backgroundColor: ACCENT.teal }}><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5L5.5 11L12 3.5" stroke="#04241f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-slate-400 line-through">{t.text}</p>
+                          <div className="flex gap-2 mt-1.5 font-mono text-[10px] tracking-widest text-slate-500">
+                              <span style={{ color: ACCENT.teal }}>✓ {fmtStamp(t.completedAt)}</span>
+                              {(t.timeMs || 0) > 0 && <span style={{ color: ACCENT.amber }}>⏱ {fmtDuration(t.timeMs)}</span>}
+                          </div>
+                          <TaskNotes task={t} onSaveNote={saveTaskNote} compact />
+                        </div>
+                        <button onClick={() => triggerAction('delete', t.id)} className="p-1.5 rounded text-slate-600 hover:text-rose-500 hover:bg-slate-800"><svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
+                      </div>
+                    );
+                  })}
+              </section>
+            </React.Fragment>
+        )}
+      </div>
+
+      <footer className="mt-12 flex flex-col items-center justify-center gap-4 border-t border-slate-800 pt-6 pb-4">
+          <p className="font-mono text-xs text-slate-600 tracking-widest text-center">made by AZ2 Medrano, thank an AZ for showing up to work today :-)</p>
+          <div className="flex gap-4">
+              <button onClick={() => setManagingLabels(true)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-slate-500 hover:text-white transition-colors border border-slate-800 bg-slate-900">[ MANAGE LABELS ]</button>
+              <button onClick={() => triggerAction('reset', null)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-slate-500 hover:text-rose-500 transition-colors border border-slate-800 bg-slate-900">[ FACTORY RESET ]</button>
+          </div>
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<CommandWeeklyTaskTracker />);
+</script>
+</body>
+</html>
