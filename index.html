@@ -75,9 +75,8 @@ const PRIORITIES = [
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // ---------- localStorage persistence ----------
-function lsGet(key) { try { const r = window.localStorage.getItem(key); return r ? JSON.parse(r) : null; } catch (e) { return null; } }
-function lsSet(key, value) { try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
-
+// ---------- Firestore Cloud Persistence ----------
+// We will sync tasks and labels directly to your Firebase Firestore database
 // ---------- Helpers ----------
 function parseDue(dueStr) { const [y, m, d] = dueStr.split("-").map(Number); return new Date(y, m - 1, d); }
 function fmtDue(date) { return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0"); }
@@ -376,9 +375,25 @@ function CommandWeeklyTaskTracker() {
     setLabels(activeLabels);
     if (activeLabels.length > 0) setNewLabel(activeLabels[0].name);
 
-    const storedTasks = lsGet(TASKS_KEY);
-    if (Array.isArray(storedTasks)) setTasks(storedTasks);
-    setLoaded(true);
+    // Connect to Firestore real-time listener if db is initialized
+    if (window.db && window.dbOperations) {
+      const { collection, onSnapshot } = window.dbOperations;
+      const unsubscribe = onSnapshot(collection(window.db, "tasks"), (snapshot) => {
+        const cloudTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        if (cloudTasks.length > 0) {
+          setTasks(cloudTasks);
+        }
+        setLoaded(true);
+      }, (error) => {
+        console.error("Firestore sync error:", error);
+        setLoaded(true);
+      });
+      return () => unsubscribe();
+    } else {
+      const storedTasks = lsGet(TASKS_KEY);
+      if (Array.isArray(storedTasks)) setTasks(storedTasks);
+      setLoaded(true);
+    }
   }, []);
 
   const saveUserName = () => {
@@ -398,8 +413,25 @@ function CommandWeeklyTaskTracker() {
       setShowTour(false);
   }
 
-  const commit = useCallback((updater) => {
-    setTasks((prev) => { const next = typeof updater === "function" ? updater(prev) : updater; lsSet(TASKS_KEY, next); return next; });
+  const commit = useCallback(async (updater) => {
+    setTasks(async (prev) => { 
+      const next = typeof updater === "function" ? updater(prev) : updater; 
+      lsSet(TASKS_KEY, next); 
+      
+      // Sync changes to Firestore cloud database
+      if (window.db && window.dbOperations) {
+        const { collection, doc, setDoc, deleteDoc } = window.dbOperations;
+        // For simplicity in this vanilla setup, we sync the array items to Firestore docs
+        for (const t of next) {
+          try {
+            await setDoc(doc(window.db, "tasks", String(t.id)), t);
+          } catch (e) {
+            console.error("Error saving task to cloud:", e);
+          }
+        }
+      }
+      return next; 
+    });
   }, []);
 
   const anyRunning = tasks.some((t) => t.runningSince && !t.done);
