@@ -322,7 +322,7 @@ function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }
   
   const activeLabel = labels.find(l => l.name === value);
   return (
-  <select value={value || ""} onChange={handleSelect} className={"bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-slate-500 " + (compact ? "py-2" : "py-2")} style={{ borderLeft: activeLabel ? `4px solid ${activeLabel.color}` : '' }}>
+  <select value={value || ""} onChange={handleSelect} className={"bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-slate-500 " + (compact ? "py-1.5" : "py-1.5")} style={{ borderLeft: activeLabel ? `4px solid ${activeLabel.color}` : '' }}>
   {labels.length === 0 && <option value="" disabled>No labels yet</option>}
   {labels.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
   <option value="__new__">＋ Create new label…</option>
@@ -356,7 +356,6 @@ function CommandWeeklyTaskTracker() {
       try {
         if (isRegistering) {
           await createUserWithEmailAndPassword(window.auth, pseudoEmail, authPassword);
-          // Prompt for official name immediately after new registration
           setAskingOfficialName(true);
         } else {
           await signInWithEmailAndPassword(window.auth, pseudoEmail, authPassword);
@@ -980,20 +979,20 @@ function CommandWeeklyTaskTracker() {
 
         {tab === "tasks" && (
           <React.Fragment>
-            <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6">
-  <div className="flex flex-col lg:flex-row gap-3">
-    <input value={newText} onChange={(e) => setNewText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder="Add a new task…" className={"flex-1 bg-slate-800 border rounded px-3 py-2 text-sm text-white focus:outline-none " + (attemptedSubmit && !newText.trim() ? "border-rose-500" : "border-slate-700")} />
-    <div className="flex flex-col sm:flex-row gap-3">
-      <LabelPicker labels={labels} value={newLabel} onChange={setNewLabel} onCreateLabel={createLabel} />
-      <select value={newPriority} onChange={(e) => setNewPriority(e.target.value)} className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white focus:outline-none">
-        {PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-      </select>
-      <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className={"bg-slate-800 border rounded px-3 py-2 text-sm text-white focus:outline-none " + (attemptedSubmit && !newDue ? "border-rose-500" : "border-slate-700")} />
-      <button onClick={() => setWritingNewNote(true)} className="font-mono text-xs font-bold tracking-widest px-3 py-2 rounded transition-colors" style={{ backgroundColor: newNote.trim() ? ACCENT.teal + "22" : "transparent", color: newNote.trim() ? ACCENT.teal : "#94a3b8", border: "1px solid " + (newNote.trim() ? ACCENT.teal + "66" : "#475569") }}>{newNote.trim() ? "📝 NOTE ADDED" : "📝 ADD NOTE"}</button>
-      <button onClick={addTask} className="font-mono text-xs font-bold tracking-widest px-5 py-2 rounded active:scale-95 transition-transform" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>+ ADD</button>
-    </div>
-  </div>
-</section>
+            <section className="bg-slate-900 border border-slate-800 rounded-lg p-3 mb-6">
+              <div className="flex flex-col lg:flex-row gap-2">
+                <input value={newText} onChange={(e) => setNewText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder="Add a new task…" className={"flex-1 bg-slate-800 border rounded px-3 py-1.5 text-sm text-white focus:outline-none " + (attemptedSubmit && !newText.trim() ? "border-rose-500" : "border-slate-700")} />
+                <div className="flex flex-wrap sm:flex-nowrap gap-2">
+                  <LabelPicker labels={labels} value={newLabel} onChange={setNewLabel} onCreateLabel={createLabel} />
+                  <select value={newPriority} onChange={(e) => setNewPriority(e.target.value)} className="bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 text-sm text-white focus:outline-none">
+                    {PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                  </select>
+                  <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className={"bg-slate-800 border rounded px-2.5 py-1.5 text-sm text-white focus:outline-none " + (attemptedSubmit && !newDue ? "border-rose-500" : "border-slate-700")} />
+                  <button onClick={() => setWritingNewNote(true)} className="font-mono text-xs font-bold tracking-widest px-3 py-1.5 rounded transition-colors" style={{ backgroundColor: newNote.trim() ? ACCENT.teal + "22" : "transparent", color: newNote.trim() ? ACCENT.teal : "#94a3b8", border: "1px solid " + (newNote.trim() ? ACCENT.teal + "66" : "#475569") }}>{newNote.trim() ? "📝 NOTE" : "📝 NOTE"}</button>
+                  <button onClick={addTask} className="font-mono text-xs font-bold tracking-widest px-4 py-1.5 rounded active:scale-95 transition-transform" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>+ ADD</button>
+                </div>
+              </div>
+            </section>
 
             <section className="space-y-3">
               {activeTasks.length === 0 && <div className="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center text-slate-500 font-mono text-sm tracking-widest">BOARD CLEAR. CHECK HISTORY & ANALYTICS.</div>}
