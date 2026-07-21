@@ -306,9 +306,10 @@ function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }
 
   useEffect(() => {
     if (creating && inputRef.current) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         inputRef.current?.focus();
       }, 50);
+      return () => clearTimeout(timer);
     }
   }, [creating]);
 
@@ -382,6 +383,29 @@ function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }
   );
 }
 
+const initializeUserProfile = async (user, officialName = "") => {
+  if (!window.db || !window.dbOperations) return;
+  const { doc, getDoc, setDoc } = window.dbOperations;
+  const userRef = doc(window.db, "users", user.uid);
+  
+  try {
+    const snap = await getDoc(userRef);
+    if (!snap.exists()) {
+      const defaultRole = user.email.startsWith("jmedrano") ? "supervisor" : "sailor";
+      
+      await setDoc(userRef, {
+        uid: user.uid,
+        email: user.email,
+        displayName: officialName || user.email.split("@")[0],
+        role: defaultRole,
+        createdAt: new Date().toISOString()
+      }, { merge: true });
+    }
+  } catch (e) {
+    console.error("Error initializing user profile:", e);
+  }
+};
+
 function CommandWeeklyTaskTracker() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -407,7 +431,8 @@ function CommandWeeklyTaskTracker() {
       const { signInWithEmailAndPassword, createUserWithEmailAndPassword } = window.authOperations;
       try {
         if (isRegistering) {
-          await createUserWithEmailAndPassword(window.auth, pseudoEmail, authPassword);
+          const userCredential = await createUserWithEmailAndPassword(window.auth, pseudoEmail, authPassword);
+          await initializeUserProfile(userCredential.user, draftOfficialName);
           setAskingOfficialName(true);
         } else {
           await signInWithEmailAndPassword(window.auth, pseudoEmail, authPassword);
@@ -419,7 +444,7 @@ function CommandWeeklyTaskTracker() {
     }
   };
 
-  const saveOfficialName = () => {
+  const saveOfficialName = async () => {
     const trimmed = draftOfficialName.trim();
     if (!trimmed) return;
     setUserName(trimmed);
@@ -482,6 +507,8 @@ function CommandWeeklyTaskTracker() {
       const { onAuthStateChanged } = window.authOperations;
       const unsubscribeAuth = onAuthStateChanged(window.auth, async (user) => {
         if (user) {
+          await initializeUserProfile(user);
+
           const storedName = lsGet(USER_NAME_KEY);
           if (storedName) {
             setUserName(storedName);
@@ -548,18 +575,6 @@ function CommandWeeklyTaskTracker() {
       if (Array.isArray(storedTasks)) setTasks(storedTasks);
     }
   }, []);
-
-  const saveUserName = () => {
-    const trimmed = draftUserName.trim();
-    if (!trimmed) return;
-    setUserName(trimmed);
-    lsSet(USER_NAME_KEY, trimmed);
-    setAskingName(false);
-    
-    if (!lsGet(TOUR_KEY)) {
-        setShowTour(true);
-    }
-  };
 
   const completeTour = () => {
       lsSet(TOUR_KEY, true);
