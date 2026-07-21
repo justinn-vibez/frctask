@@ -629,18 +629,19 @@ function CommandWeeklyTaskTracker() {
               setUserRole(role);
               setUserWorkCenter(wc);
 
-              if (role === "supervisor" || role === "admin") {
-                const usersSnap = await getDocs(collection(window.db, "users"));
-                let sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-                
-                if (role === "supervisor" && wc !== "ALL") {
-                  sailors = sailors.filter(s => s.workCenter === wc);
-                }
+              const usersSnap = await getDocs(collection(window.db, "users"));
+              let sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+              
+              if (role === "supervisor" && wc !== "ALL") {
+                sailors = sailors.filter(s => s.workCenter === wc);
+              }
 
-                setShopSailors(sailors);
-                if (sailors.length > 0) {
-                  setSelectedSailorUid(sailors[0].uid || sailors[0].id);
-                }
+              setShopSailors(sailors);
+              if (sailors.length > 0) {
+                setSelectedSailorUid(sailors[0].uid || sailors[0].id);
+              }
+
+              if (role === "supervisor" || role === "admin") {
                 setTab("oversight"); 
               }
             }
@@ -847,21 +848,16 @@ function CommandWeeklyTaskTracker() {
       return { ...t, due: fmtDue(base) };
   }));
 
-  // Reassignment handling during Edit Task
   const saveEdit = async () => {
     if (!editingTask || !editingTask.text.trim()) return;
     const currentUid = window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "";
     const newAssignedTo = editingTask.assignedTo || currentUid;
-
-    // Check if worker changed (reassigned to someone else)
     const oldAssignedTo = tasks.find(t => t.id === editingTask.id)?.assignedTo || currentUid;
 
     if (oldAssignedTo !== newAssignedTo && window.db && window.dbOperations) {
       const { doc, deleteDoc, setDoc } = window.dbOperations;
       try {
-        // Remove from old user subcollection
         await deleteDoc(doc(window.db, "users", oldAssignedTo, "tasks", String(editingTask.id)));
-        // Add to new user subcollection
         await setDoc(doc(window.db, "users", newAssignedTo, "tasks", String(editingTask.id)), {
           ...editingTask,
           text: editingTask.text.trim()
@@ -1645,7 +1641,7 @@ function CommandWeeklyTaskTracker() {
           </div>
         )}
 
-        {/* ACTIVE TASKS TAB (Cleaned Up Two-Tier Layout) */}
+        {/* ACTIVE TASKS TAB (Fixed Two-Tier Layout) */}
         {tab === "tasks" && (
           <React.Fragment>
             <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4 flex items-center gap-6">
