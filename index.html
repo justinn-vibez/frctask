@@ -436,6 +436,7 @@ function CommandWeeklyTaskTracker() {
   const [shopSailors, setShopSailors] = useState([]);
   const [selectedSailorUid, setSelectedSailorUid] = useState(null);
   const [sailorTasks, setSailorTasks] = useState([]);
+  const [assignedWorkerUid, setAssignedWorkerUid] = useState("");
 
   const [askingName, setAskingName] = useState(false);
   const [askingOfficialName, setAskingOfficialName] = useState(false);
@@ -535,7 +536,7 @@ function CommandWeeklyTaskTracker() {
           await initializeUserProfile(user);
           await migrateLegacyTasks(user);
 
-          // Fetch user role & profile
+          // Fetch user role & shop directory
           if (window.db && window.dbOperations) {
             const { doc, getDoc, collection, getDocs } = window.dbOperations;
             const userSnap = await getDoc(doc(window.db, "users", user.uid));
@@ -547,7 +548,7 @@ function CommandWeeklyTaskTracker() {
                 const sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
                 setShopSailors(sailors);
                 if (sailors.length > 0) {
-                  setSelectedSailorUid(sailors[0].uid);
+                  setSelectedSailorUid(sailors[0].uid || sailors[0].id);
                 }
                 setTab("oversight"); // Default supervisors straight to oversight dashboard
               }
@@ -646,17 +647,21 @@ function CommandWeeklyTaskTracker() {
     }
   };
 
-  const commit = useCallback((updater) => {
+  const commit = useCallback((updater, targetUid = null) => {
+    const activeUid = targetUid || (window.auth && window.auth.currentUser ? window.auth.currentUser.uid : null);
+    
+    // If delegating to another sailor, update state if viewing their board, or commit to Firestore
     setTasks((prev) => { 
       const next = typeof updater === "function" ? updater(prev) : updater; 
-      lsSet(TASKS_KEY, next); 
+      if (!targetUid || (window.auth && window.auth.currentUser && targetUid === window.auth.currentUser.uid)) {
+        lsSet(TASKS_KEY, next); 
+      }
       
-      if (window.db && window.dbOperations && window.auth && window.auth.currentUser) {
+      if (window.db && window.dbOperations && activeUid) {
         const { doc, setDoc } = window.dbOperations;
-        const uid = window.auth.currentUser.uid;
         next.forEach(async (t) => {
           try {
-            await setDoc(doc(window.db, "users", uid, "tasks", String(t.id)), t);
+            await setDoc(doc(window.db, "users", activeUid, "tasks", String(t.id)), t);
           } catch (e) {
             console.error("Error saving task to cloud:", e);
           }
@@ -675,7 +680,7 @@ function CommandWeeklyTaskTracker() {
   const oversightTotal = oversightWeekTasks.length;
   const oversightCompleted = oversightWeekTasks.filter(t => t.done).length;
   const oversightPct = oversightTotal === 0 ? 0 : Math.round((oversightCompleted / oversightTotal) * 100);
-  const selectedSailorObj = shopSailors.find(s => s.uid === selectedSailorUid);
+  const selectedSailorObj = shopSailors.find(s => (s.uid || s.id) === selectedSailorUid);
 
   useEffect(() => {
     if (loaded && pct === 100 && prevPct.current < 100 && weekTotal > 0) {
@@ -691,12 +696,25 @@ function CommandWeeklyTaskTracker() {
       setTimeout(() => setErrorAlert(null), 5000);
       return;
     }
-    commit((prev) => [...prev, { 
+    const newTask = { 
         id: "t-" + Date.now(), text: newText.trim(), label: newLabel || "", priority: newPriority, due: newDue, 
         done: false, completedAt: null, note: newNote.trim() ? { text: newNote.trim(), updatedAt: new Date().toISOString() } : null, 
-        timeMs: 0, runningSince: null 
-    }]);
-    setNewText(""); setNewDue(""); setNewPriority("medium"); setNewNote(""); setAttemptedSubmit(false);
+        timeMs: 0, runningSince: null, assignedTo: assignedWorkerUid || (window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "")
+    };
+
+    const targetUid = assignedWorkerUid || (window.auth && window.auth.currentUser ? window.auth.currentUser.uid : null);
+    
+    if (targetUid && window.auth && window.auth.currentUser && targetUid !== window.auth.currentUser.uid) {
+      // Delegate to selected sailor's path directly
+      if (window.db && window.dbOperations) {
+        const { doc, setDoc } = window.dbOperations;
+        setDoc(doc(window.db, "users", targetUid, "tasks", String(newTask.id)), newTask).catch(e => console.error("Error assigning task:", e));
+      }
+    } else {
+      commit((prev) => [...prev, newTask]);
+    }
+
+    setNewText(""); setNewDue(""); setNewPriority("medium"); setNewNote(""); setAssignedWorkerUid(""); setAttemptedSubmit(false);
   };
 
   const toggleTimer = (id) => commit((prev) => prev.map((t) => t.id !== id ? t : (t.runningSince ? { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null } : { ...t, runningSince: new Date().toISOString() })));
@@ -1216,7 +1234,7 @@ function CommandWeeklyTaskTracker() {
         {/* Navigation Bar: Dynamic Tabs for Sailors vs Supervisors */}
         <nav className="flex gap-1 mb-6 bg-slate-900 border border-slate-800 rounded-lg p-1">
           {(userRole === "supervisor" || userRole === "admin") && (
-            <button onClick={() => setTab("oversight")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "oversight" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>OVERSIGHT</button>
+            <button onClick={() => setTab("oversight")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "oversight" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ADMIN PANEL</button>
           )}
           <button onClick={() => setTab("home")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "home" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>HOME</button>
           <button onClick={() => setTab("tasks")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "tasks" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>TASKS ({activeTasks.length})</button>
@@ -1224,14 +1242,14 @@ function CommandWeeklyTaskTracker() {
           <button onClick={() => setTab("analytics")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "analytics" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ANALYTICS</button>
         </nav>
 
-        {/* SUPERVISOR OVERSIGHT TAB */}
+        {/* ADMIN PANEL / SUPERVISOR OVERSIGHT TAB */}
         {tab === "oversight" && (userRole === "supervisor" || userRole === "admin") && (
           <div className="space-y-6">
             <section className="bg-slate-900 border border-slate-800 rounded-xl p-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
-                  <h2 className="font-mono text-xs tracking-widest text-teal-400 mb-1">COMMAND OVERSIGHT DASHBOARD</h2>
-                  <p className="text-xl font-bold text-white">Work Center / Division Task Monitor</p>
+                  <h2 className="font-mono text-xs tracking-widest text-teal-400 mb-1">COMMAND MASTER ADMIN PANEL</h2>
+                  <p className="text-xl font-bold text-white">Work Center & Division Oversight</p>
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto">
                   <span className="font-mono text-[10px] text-slate-400 tracking-widest">SELECT SAILOR:</span>
@@ -1253,7 +1271,7 @@ function CommandWeeklyTaskTracker() {
                 <div className="flex flex-col md:flex-row items-center gap-6 bg-slate-950 border border-slate-800 rounded-lg p-6">
                   <ProgressRing pct={oversightPct} completed={oversightCompleted} total={oversightTotal} size={130} stroke={12} />
                   <div className="flex-1 text-center md:text-left">
-                    <p className="font-mono text-xs text-slate-500 tracking-widest mb-1">CURRENTLY VIEWING</p>
+                    <p className="font-mono text-xs text-slate-500 tracking-widest mb-1">INSPECTING WORKER</p>
                     <h3 className="text-2xl font-bold text-white mb-1">{selectedSailorObj.displayName || selectedSailorObj.email}</h3>
                     <p className="font-mono text-xs text-teal-400 tracking-wider mb-3">ROLE: {selectedSailorObj.role.toUpperCase()} · EMAIL: {selectedSailorObj.email}</p>
                     <p className="text-xs text-slate-400">{oversightTotal === 0 ? "No active tasks assigned for this week." : `${oversightCompleted} of ${oversightTotal} tasks completed (${oversightPct}%).`}</p>
@@ -1346,12 +1364,29 @@ function CommandWeeklyTaskTracker() {
             <section className="bg-slate-900 border border-slate-800 rounded-lg p-3 mb-4">
               <div className="flex flex-col lg:flex-row gap-2">
                 <input value={newText} onChange={(e) => setNewText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder="Add a new task…" className={"flex-1 bg-slate-800 border rounded px-3 py-1.5 text-sm text-white focus:outline-none " + (attemptedSubmit && !newText.trim() ? "border-rose-500" : "border-slate-700")} />
-                <div className="flex flex-wrap sm:flex-nowrap gap-2">
+                <div className="flex flex-wrap sm:flex-nowrap gap-2 items-center">
                   <LabelPicker labels={labels} value={newLabel} onChange={setNewLabel} onCreateLabel={createLabel} />
                   <select value={newPriority} onChange={(e) => setNewPriority(e.target.value)} className="bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 text-sm text-white focus:outline-none">
                     {PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
                   </select>
                   <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className={"bg-slate-800 border rounded px-2.5 py-1.5 text-sm text-white focus:outline-none " + (attemptedSubmit && !newDue ? "border-rose-500" : "border-slate-700")} />
+                  
+                  {(userRole === "supervisor" || userRole === "admin") && shopSailors.length > 0 && (
+                    <select 
+                      value={assignedWorkerUid} 
+                      onChange={(e) => setAssignedWorkerUid(e.target.value)} 
+                      title="Assign worker"
+                      className="bg-slate-800 border border-teal-500/50 rounded px-2.5 py-1.5 text-xs text-teal-300 focus:outline-none font-mono"
+                    >
+                      <option value="">👤 Assign to Me</option>
+                      {shopSailors.map(s => (
+                        <option key={s.uid || s.id} value={s.uid || s.id}>
+                          👤 {s.displayName || s.email}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
                   <button onClick={() => setWritingNewNote(true)} className="font-mono text-xs font-bold tracking-widest px-3 py-1.5 rounded transition-colors" style={{ backgroundColor: newNote.trim() ? ACCENT.teal + "22" : "transparent", color: newNote.trim() ? ACCENT.teal : "#94a3b8", border: "1px solid " + (newNote.trim() ? ACCENT.teal + "66" : "#475569") }}>{newNote.trim() ? "📝 NOTE" : "📝 NOTE"}</button>
                   <button onClick={addTask} className="font-mono text-xs font-bold tracking-widest px-4 py-1.5 rounded active:scale-95 transition-transform" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>+ ADD</button>
                 </div>
