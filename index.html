@@ -66,6 +66,7 @@ const {
 
 const TASKS_KEY = "weekly_tracker_tasks_b7";
 const LABELS_KEY = "weekly_tracker_labels_b7";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b7";
 const USER_NAME_KEY = "weekly_tracker_username_b7";
 const TOUR_KEY = "weekly_tracker_tour_b7";
 
@@ -444,7 +445,17 @@ function CommandWeeklyTaskTracker() {
   const [sailorTasks, setSailorTasks] = useState([]);
   const [assignedWorkerUid, setAssignedWorkerUid] = useState("");
 
-  // OOMA Account Provisioning Form State
+  // Work Centers State
+  const [workCenters, setWorkCenters] = useState(() => {
+    const stored = lsGet(WORK_CENTERS_KEY);
+    return Array.isArray(stored) ? stored : ["040", "110", "120", "210", "310", "510"];
+  });
+  const [selectedWcFilter, setSelectedWcFilter] = useState("ALL");
+  const [showWcManager, setShowWcManager] = useState(false);
+  const [newWcDraft, setNewWcDraft] = useState("");
+
+  // OOMA Account Provisioning Modal State
+  const [showProvisionModal, setShowProvisionModal] = useState(false);
   const [newProvUser, setNewProvUser] = useState("");
   const [newProvPass, setNewProvPass] = useState("");
   const [newProvName, setNewProvName] = useState("");
@@ -484,7 +495,7 @@ function CommandWeeklyTaskTracker() {
     }
   };
 
-  // OOMA Provisioning Handler (Creates user without logging out admin)
+  // OOMA Provisioning Handler
   const handleProvisionAccount = async (e) => {
     e.preventDefault();
     setProvSuccess(null);
@@ -495,7 +506,6 @@ function CommandWeeklyTaskTracker() {
     const cleanEmail = `${newProvUser.trim().toLowerCase()}@redbird.local`;
     
     try {
-      // Use a secondary Firebase app instance for isolated account creation
       const secondaryAppName = "SecondaryProvision_" + Date.now();
       const secondaryApp = window.initializeApp(window.firebaseConfig, secondaryAppName);
       const secondaryAuth = window.getAuth(secondaryApp);
@@ -514,7 +524,7 @@ function CommandWeeklyTaskTracker() {
       });
 
       await signOut(secondaryAuth);
-      setProvSuccess({ type: "success", text: `Successfully provisioned user [${newProvUser}] under Work Center [${newProvWC}].` });
+      setProvSuccess({ type: "success", text: `Successfully provisioned [${newProvUser}] under WC [${newProvWC}].` });
       setNewProvUser(""); setNewProvPass(""); setNewProvName("");
 
       // Refresh shop directory
@@ -525,6 +535,21 @@ function CommandWeeklyTaskTracker() {
     } catch (err) {
       setProvSuccess({ type: "error", text: err.message.replace("Firebase: ", "") });
     }
+  };
+
+  const createWorkCenterCode = () => {
+    const code = newWcDraft.trim().toUpperCase();
+    if (!code || workCenters.includes(code)) return;
+    const next = [...workCenters, code];
+    setWorkCenters(next);
+    lsSet(WORK_CENTERS_KEY, next);
+    setNewWcDraft("");
+  };
+
+  const deleteWorkCenterCode = (code) => {
+    const next = workCenters.filter(w => w !== code);
+    setWorkCenters(next);
+    lsSet(WORK_CENTERS_KEY, next);
   };
 
   const saveOfficialName = async () => {
@@ -606,13 +631,7 @@ function CommandWeeklyTaskTracker() {
 
               if (role === "supervisor" || role === "admin") {
                 const usersSnap = await getDocs(collection(window.db, "users"));
-                let sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-                
-                // If supervisor (not admin), filter sailors to their assigned work center
-                if (role === "supervisor" && wc !== "ALL") {
-                  sailors = sailors.filter(s => s.workCenter === wc);
-                }
-
+                const sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
                 setShopSailors(sailors);
                 if (sailors.length > 0) {
                   setSelectedSailorUid(sailors[0].uid || sailors[0].id);
@@ -690,6 +709,12 @@ function CommandWeeklyTaskTracker() {
       if (Array.isArray(storedTasks)) setTasks(storedTasks);
     }
   }, []);
+
+  // Filtered shop sailors based on selected Work Center filter
+  const filteredShopSailors = useMemo(() => {
+    if (selectedWcFilter === "ALL") return shopSailors;
+    return shopSailors.filter(s => (s.workCenter || "040") === selectedWcFilter);
+  }, [shopSailors, selectedWcFilter]);
 
   // Real-time subscription for selected sailor tasks in oversight mode
   useEffect(() => {
@@ -1094,6 +1119,129 @@ function CommandWeeklyTaskTracker() {
     }
 
     if (showTour) return <GuidedTour onComplete={completeTour} />;
+    
+    // OOMA Provisioning Modal
+    if (showProvisionModal) {
+      return (
+        <ModalOverlay zIndex="z-[80]">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-mono text-xs tracking-widest text-teal-400">PROVISION SAILOR ACCOUNT</h3>
+              <button onClick={() => setShowProvisionModal(false)} className="text-slate-500 hover:text-white text-xs">✕</button>
+            </div>
+
+            {provSuccess && (
+              <div className={"mb-4 p-3 rounded font-mono text-xs border " + (provSuccess.type === 'success' ? "bg-teal-950/80 border-teal-600 text-teal-300" : "bg-rose-950/80 border-rose-600 text-rose-300")}>
+                {provSuccess.text}
+              </div>
+            )}
+
+            <form onSubmit={handleProvisionAccount} className="space-y-3">
+              <div>
+                <label className="block font-mono text-[10px] text-slate-400 mb-1">USERNAME</label>
+                <input 
+                  type="text" 
+                  value={newProvUser} 
+                  onChange={(e) => setNewProvUser(e.target.value)} 
+                  placeholder="e.g. jdoe" 
+                  className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-teal-400"
+                />
+              </div>
+              <div>
+                <label className="block font-mono text-[10px] text-slate-400 mb-1">PASSWORD</label>
+                <input 
+                  type="password" 
+                  value={newProvPass} 
+                  onChange={(e) => setNewProvPass(e.target.value)} 
+                  placeholder="Temporary password" 
+                  className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-teal-400"
+                />
+              </div>
+              <div>
+                <label className="block font-mono text-[10px] text-slate-400 mb-1">OFFICIAL NAME / RATE</label>
+                <input 
+                  type="text" 
+                  value={newProvName} 
+                  onChange={(e) => setNewProvName(e.target.value)} 
+                  placeholder="e.g. AN Smith" 
+                  className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-teal-400"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-mono text-[10px] text-slate-400 mb-1">WORK CENTER</label>
+                  <select 
+                    value={newProvWC} 
+                    onChange={(e) => setNewProvWC(e.target.value)} 
+                    className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none"
+                  >
+                    {workCenters.map(wc => <option key={wc} value={wc}>{wc}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-mono text-[10px] text-slate-400 mb-1">SYSTEM ROLE</label>
+                  <select 
+                    value={newProvRole} 
+                    onChange={(e) => setNewProvRole(e.target.value)} 
+                    className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none"
+                  >
+                    <option value="sailor">Sailor</option>
+                    <option value="supervisor">Supervisor</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 mt-6">
+                <button type="button" onClick={() => setShowProvisionModal(false)} className="font-mono text-xs px-4 py-2 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">CANCEL</button>
+                <button type="submit" className="font-mono text-xs font-bold tracking-widest px-5 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.teal }}>CREATE ACCOUNT</button>
+              </div>
+            </form>
+          </div>
+        </ModalOverlay>
+      );
+    }
+
+    // Work Center Code Manager Modal
+    if (showWcManager) {
+      return (
+        <ModalOverlay zIndex="z-[80]">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-mono text-xs tracking-widest text-teal-400">WORK CENTER MANAGER</h3>
+              <button onClick={() => setShowWcManager(false)} className="text-slate-500 hover:text-white text-xs">✕</button>
+            </div>
+
+            <div className="flex gap-2 mb-4">
+              <input 
+                type="text" 
+                value={newWcDraft} 
+                onChange={(e) => setNewWcDraft(e.target.value)} 
+                placeholder="New WC Code (e.g. 020)" 
+                className="h-10 flex-1 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none"
+              />
+              <button onClick={createWorkCenterCode} className="h-10 px-4 rounded font-mono text-xs font-bold tracking-widest text-slate-950" style={{ backgroundColor: ACCENT.teal }}>ADD CODE</button>
+            </div>
+
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              {workCenters.map(wc => (
+                <div key={wc} className="flex justify-between items-center bg-slate-800 border border-slate-700 rounded px-3 py-2">
+                  <span className="font-mono text-sm text-white font-bold">{wc}</span>
+                  {workCenters.length > 1 && (
+                    <button onClick={() => deleteWorkCenterCode(wc)} className="text-slate-500 hover:text-rose-400 text-xs font-mono">DELETE</button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button onClick={() => setShowWcManager(false)} className="font-mono text-xs px-5 py-2 rounded bg-slate-800 text-white border border-slate-700 hover:bg-slate-700">DONE</button>
+            </div>
+          </div>
+        </ModalOverlay>
+      );
+    }
+
     if (writingNewNote) {
         return (
             <ModalOverlay>
@@ -1297,7 +1445,7 @@ function CommandWeeklyTaskTracker() {
           </div>
         </header>
 
-        {/* Navigation Bar: Dynamic Tabs for Sailors vs Supervisors */}
+        {/* Navigation Bar */}
         <nav className="flex gap-1 mb-6 bg-slate-900 border border-slate-800 rounded-lg p-1">
           {(userRole === "supervisor" || userRole === "admin") && (
             <button onClick={() => setTab("oversight")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "oversight" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ADMIN PANEL</button>
@@ -1311,68 +1459,43 @@ function CommandWeeklyTaskTracker() {
         {/* ADMIN PANEL / SUPERVISOR OVERSIGHT TAB */}
         {tab === "oversight" && (userRole === "supervisor" || userRole === "admin") && (
           <div className="space-y-6">
-            {/* OOMA Account Provisioning Box */}
-            <section className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-              <h2 className="font-mono text-xs tracking-widest text-teal-400 mb-1">OOMA WORK CENTER PROVISIONING</h2>
-              <p className="text-xl font-bold text-white mb-4">Create Sailor Account & Assign Work Center</p>
-
-              {provSuccess && (
-                <div className={"mb-4 p-3 rounded font-mono text-xs border " + (provSuccess.type === 'success' ? "bg-teal-950/80 border-teal-600 text-teal-300" : "bg-rose-950/80 border-rose-600 text-rose-300")}>
-                  {provSuccess.text}
-                </div>
-              )}
-
-              <form onSubmit={handleProvisionAccount} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                <input 
-                  type="text" 
-                  value={newProvUser} 
-                  onChange={(e) => setNewProvUser(e.target.value)} 
-                  placeholder="Username (e.g. jdoe)" 
-                  className="h-10 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-teal-400"
-                />
-                <input 
-                  type="password" 
-                  value={newProvPass} 
-                  onChange={(e) => setNewProvPass(e.target.value)} 
-                  placeholder="Password" 
-                  className="h-10 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-teal-400"
-                />
-                <input 
-                  type="text" 
-                  value={newProvName} 
-                  onChange={(e) => setNewProvName(e.target.value)} 
-                  placeholder="Official Name / Rate" 
-                  className="h-10 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-teal-400"
-                />
-                <input 
-                  type="text" 
-                  value={newProvWC} 
-                  onChange={(e) => setNewProvWC(e.target.value)} 
-                  placeholder="Work Center (e.g. 040)" 
-                  className="h-10 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-teal-400"
-                />
-                <div className="flex gap-2">
-                  <select 
-                    value={newProvRole} 
-                    onChange={(e) => setNewProvRole(e.target.value)} 
-                    className="h-10 flex-1 bg-slate-800 border border-slate-700 rounded px-2 text-sm text-white focus:outline-none"
-                  >
-                    <option value="sailor">Sailor</option>
-                    <option value="supervisor">Supervisor</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                  <button type="submit" className="h-10 px-4 rounded font-mono text-xs font-bold tracking-widest text-slate-950" style={{ backgroundColor: ACCENT.teal }}>CREATE</button>
-                </div>
-              </form>
+            {/* Admin Header with Action Buttons */}
+            <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h2 className="font-mono text-xs tracking-widest text-teal-400 mb-1">COMMAND MASTER ADMIN PANEL</h2>
+                <p className="text-xl font-bold text-white">Work Center & Division Oversight</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => setShowProvisionModal(true)} className="h-10 font-mono text-xs font-bold tracking-widest px-4 rounded transition-transform active:scale-95 flex items-center" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
+                  ＋ PROVISION NEW SAILOR
+                </button>
+                <button onClick={() => setShowWcManager(true)} className="h-10 font-mono text-xs tracking-widest px-4 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 flex items-center">
+                  ⚙️ MANAGE WORK CENTERS
+                </button>
+              </div>
             </section>
 
-            {/* Oversight Monitor */}
+            {/* Oversight Monitor & Filter */}
             <section className="bg-slate-900 border border-slate-800 rounded-xl p-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                <div>
-                  <h2 className="font-mono text-xs tracking-widest text-teal-400 mb-1">WORK CENTER TASK MONITOR</h2>
-                  <p className="text-xl font-bold text-white">Inspect Personnel Productivity ({userWorkCenter})</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div>
+                    <h3 className="font-mono text-xs tracking-widest text-teal-400 mb-1">WORK CENTER MONITOR</h3>
+                    <p className="text-lg font-bold text-white">Inspect Personnel Productivity</p>
+                  </div>
+                  <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded px-3 py-1.5">
+                    <span className="font-mono text-[10px] text-slate-400 tracking-widest">WC FILTER:</span>
+                    <select 
+                      value={selectedWcFilter} 
+                      onChange={(e) => setSelectedWcFilter(e.target.value)} 
+                      className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:outline-none font-mono"
+                    >
+                      <option value="ALL">ALL WORK CENTERS</option>
+                      {workCenters.map(wc => <option key={wc} value={wc}>{wc}</option>)}
+                    </select>
+                  </div>
                 </div>
+
                 <div className="flex items-center gap-2 w-full sm:w-auto">
                   <span className="font-mono text-[10px] text-slate-400 tracking-widest">SELECT SAILOR:</span>
                   <select 
@@ -1380,11 +1503,15 @@ function CommandWeeklyTaskTracker() {
                     onChange={(e) => setSelectedSailorUid(e.target.value)} 
                     className="h-10 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none font-mono"
                   >
-                    {shopSailors.map((s) => (
-                      <option key={s.uid || s.id} value={s.uid || s.id}>
-                        {s.displayName || s.email} [WC: {s.workCenter || "040"}] ({s.role.toUpperCase()})
-                      </option>
-                    ))}
+                    {filteredShopSailors.length === 0 ? (
+                      <option value="" disabled>No personnel found in filter</option>
+                    ) : (
+                      filteredShopSailors.map((s) => (
+                        <option key={s.uid || s.id} value={s.uid || s.id}>
+                          {s.displayName || s.email} [WC: {s.workCenter || "040"}] ({s.role.toUpperCase()})
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
               </div>
@@ -1503,7 +1630,7 @@ function CommandWeeklyTaskTracker() {
                       <option value="">👤 Assign to Me</option>
                       {shopSailors.map(s => (
                         <option key={s.uid || s.id} value={s.uid || s.id}>
-                          👤 {s.displayName || s.email}
+                          👤 {s.displayName || s.email} [WC: {s.workCenter || "040"}]
                         </option>
                       ))}
                     </select>
