@@ -291,6 +291,17 @@ function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftColor, setDraftColor] = useState(LABEL_PALETTE[0]);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setCreating(false);
+      }
+    };
+    if (creating) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [creating]);
 
   const handleSelect = (e) => {
     if (e.target.value === "__new__") { 
@@ -307,31 +318,56 @@ function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }
     if (!name) { setCreating(false); return; }
     onCreateLabel({ name, color: draftColor });
     onChange(name);
+    setDraftName("");
     setCreating(false);
   };
 
-  if (creating) {
-    return (
-      <div className="flex flex-col gap-2 bg-slate-800 p-2 rounded border border-slate-600">
-        <div className="flex gap-1.5">
-          <input value={draftName} onChange={(e) => setDraftName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") confirmNew(); if (e.key === "Escape") setCreating(false); }} autoFocus placeholder="Label name…" className="flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm text-white focus:outline-none" />
-          <button onClick={confirmNew} className="font-mono text-[10px] font-bold tracking-widest px-3 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>OK</button>
-          <button onClick={() => setCreating(false)} className="font-mono text-[10px] tracking-widest px-2 rounded bg-slate-700 text-slate-300">✕</button>
-        </div>
-        <div className="flex gap-1 justify-between mt-1">
-            {LABEL_PALETTE.map(c => <button key={c} onClick={() => setDraftColor(c)} className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110" style={{ backgroundColor: c, borderColor: draftColor === c ? '#fff' : 'transparent' }} />)}
-        </div>
-      </div>
-    );
-  }
-  
   const activeLabel = labels.find(l => l.name === value);
+
   return (
-    <select value={value || ""} onChange={handleSelect} className={"bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-slate-500 " + (compact ? "py-1.5" : "py-1.5")} style={{ borderLeft: activeLabel ? `4px solid ${activeLabel.color}` : '' }}>
-      {labels.length === 0 && <option value="" disabled>No labels yet</option>}
-      {labels.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
-      <option value="__new__">＋ Create new label…</option>
-    </select>
+    <div className="relative" ref={containerRef}>
+      <select 
+        value={value || ""} 
+        onChange={handleSelect} 
+        className={"bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-slate-500 " + (compact ? "py-1.5" : "py-1.5")} 
+        style={{ borderLeft: activeLabel ? `4px solid ${activeLabel.color}` : '' }}
+      >
+        {labels.length === 0 && <option value="" disabled>No labels yet</option>}
+        {labels.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
+        <option value="__new__">＋ Create new label…</option>
+      </select>
+
+      {creating && (
+        <div className="absolute top-full left-0 mt-2 z-50 w-64 bg-slate-900 border border-slate-700 rounded-xl p-3.5 shadow-2xl flex flex-col gap-3">
+          <div className="flex justify-between items-center">
+            <span className="font-mono text-[10px] tracking-widest text-slate-400">NEW LABEL</span>
+            <button type="button" onClick={() => setCreating(false)} className="text-slate-500 hover:text-white text-xs">✕</button>
+          </div>
+          <div className="flex gap-1.5">
+            <input 
+              value={draftName} 
+              onChange={(e) => setDraftName(e.target.value)} 
+              onKeyDown={(e) => { if (e.key === "Enter") confirmNew(); if (e.key === "Escape") setCreating(false); }} 
+              autoFocus 
+              placeholder="Label name…" 
+              className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-teal-400" 
+            />
+            <button type="button" onClick={confirmNew} className="font-mono text-xs font-bold tracking-wider px-3 py-1.5 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>OK</button>
+          </div>
+          <div className="flex gap-1.5 justify-between">
+            {LABEL_PALETTE.map(c => (
+              <button 
+                key={c} 
+                type="button"
+                onClick={(e) => { e.preventDefault(); setDraftColor(c); }} 
+                className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110" 
+                style={{ backgroundColor: c, borderColor: draftColor === c ? '#fff' : 'transparent' }} 
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
