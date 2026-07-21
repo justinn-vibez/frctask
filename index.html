@@ -106,7 +106,7 @@ function dueLabelTxt(dueStr) {
 function fmtStamp(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " · " + d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " · " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
 }
 function dayKey(date) { return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0"); }
 function getGreeting() {
@@ -196,9 +196,9 @@ function ProgressRing({ pct, completed, total, size = 170, stroke = 13 }) {
 function GuidedTour({ onComplete }) {
   const [step, setStep] = useState(0);
   const steps = [
-    { title: "Welcome to Red Bird Readiness.", text: "This dashboard was built to streamline tasks, kill the bottlenecks, and ditch the scattered sticky notes. Let's take a quick 3-step tour.", icon: "🚀" },
-    { title: "The Active Board", text: "Create tasks, prioritize them, set due dates, and tag them with custom labels. Hit 'Move to Next Week' to instantly push a task out by 7 days without hurting your weekly progress.", icon: "📋" },
-    { title: "The Stopwatch", text: "Hit ▶ START when you begin a task, and ✓ FINISH when you're done. The analytics engine will build charts based on your clocked time to expose trends where our hours actually go.", icon: "⏱" },
+    { title: "Welcome to Red Bird Readiness.", text: "This dashboard was built by AZ2 Medrano to streamline tasks, kill bottlenecks, and ditch scattered sticky notes. Remember your password, and please bring any suggestions or bugs straight to AZ2 Medrano—and be sure to thank him for creating this incredible tracker!", icon: "🚀" },
+    { title: "The Home & Active Board", text: "Start on the welcome home screen featuring the progress ring centerpiece, then jump into Active Tasks to prioritize, set due dates, tag labels, and use Finder-style tiles or list views.", icon: "📋" },
+    { title: "History & Analytics", text: "We've separated your completed task logs (History) from the robust charts and metrics (Analytics) so you can easily track throughput and future task-level metrics.", icon: "📊" },
     { title: "TV Display Mode", text: "Click the 📺 TV MODE button at the top right to strip away the clutter. It blows up the progress ring and organizes the daily hit-list perfectly for the shop's big monitor.", icon: "📺" }
   ];
 
@@ -373,6 +373,7 @@ function CommandWeeklyTaskTracker() {
     setUserName(trimmed);
     lsSet(USER_NAME_KEY, trimmed);
     setAskingOfficialName(false);
+    setShowTour(true);
   };
 
   const [draftUserName, setDraftUserName] = useState("");
@@ -381,7 +382,7 @@ function CommandWeeklyTaskTracker() {
   const [tasks, setTasks] = useState([]);
   const [labels, setLabels] = useState([]);
   const [loaded, setLoaded] = useState(false);
-  const [tab, setTab] = useState("tasks");
+  const [tab, setTab] = useState("home");
   const [chartRange, setChartRange] = useState(14);
   const [nowTs, setNowTs] = useState(Date.now());
   const prevPct = useRef(0);
@@ -403,6 +404,23 @@ function CommandWeeklyTaskTracker() {
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [writingNewNote, setWritingNewNote] = useState(false);
+
+  const [sortMode, setSortMode] = useState("default");
+  const [viewMode, setViewMode] = useState("list");
+
+  // System clock synced with app time (24-hour format with ticking colon)
+  const [systemClock, setSystemClock] = useState(new Date());
+  const [tickToggle, setTickToggle] = useState(true);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const current = new Date();
+      setSystemClock(current);
+      setNowTs(current.getTime());
+      setTickToggle((t) => !t);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (window.auth && window.authOperations) {
@@ -488,9 +506,6 @@ function CommandWeeklyTaskTracker() {
     });
   }, []);
 
-  const anyRunning = tasks.some((t) => t.runningSince && !t.done);
-  useEffect(() => { if (!anyRunning) return; const id = setInterval(() => setNowTs(Date.now()), 1000); return () => clearInterval(id); }, [anyRunning]);
-
   const weekTasks = tasks.filter(inActiveWeek);
   const weekTotal = weekTasks.length, weekCompleted = weekTasks.filter((t) => t.done).length;
   const pct = weekTotal === 0 ? 0 : Math.round((weekCompleted / weekTotal) * 100);
@@ -529,9 +544,12 @@ function CommandWeeklyTaskTracker() {
         const completedTime = new Date().toISOString();
         commit((prev) => prev.map((t) => t.id !== id ? t : { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null, done: true, completedAt: completedTime }));
     }
+    else if (type === 'signout') {
+      if (window.auth) window.auth.signOut();
+    }
     else if (type === 'reset') {
       window.localStorage.clear();
-      setTasks([]); setLabels([]); setUserName(""); setDraftUserName(""); setTab("tasks"); setAskingName(true); setShowTour(false);
+      setTasks([]); setLabels([]); setUserName(""); setDraftUserName(""); setTab("home"); setAskingName(true); setShowTour(false);
     }
     setConfirmAction(null);
   };
@@ -555,6 +573,22 @@ function CommandWeeklyTaskTracker() {
   const getLabelColor = (name) => { const l = labels.find(x => x.name === name); return l ? l.color : "#64748b"; };
 
   const activeTasks = tasks.filter((t) => !t.done).sort((a, b) => {
+      if (sortMode === "priority_high_low") {
+          const weights = { asap: 0, high: 1, medium: 2, low: 3 };
+          return weights[a.priority] - weights[b.priority];
+      }
+      if (sortMode === "priority_low_high") {
+          const weights = { asap: 3, high: 2, medium: 1, low: 0 };
+          return weights[a.priority] - weights[b.priority];
+      }
+      if (sortMode === "due_soonest") {
+          const da = a.due || "9999-12-31", db = b.due || "9999-12-31";
+          return da < db ? -1 : 1;
+      }
+      if (sortMode === "due_earliest") {
+          const da = a.due || "9999-12-31", db = b.due || "9999-12-31";
+          return da > db ? -1 : 1;
+      }
       const aw = inActiveWeek(a) ? 0 : 1, bw = inActiveWeek(b) ? 0 : 1;
       if (aw !== bw) return aw - bw; 
       const da = a.due || "9999-12-31", db = b.due || "9999-12-31";
@@ -647,20 +681,50 @@ function CommandWeeklyTaskTracker() {
     const peakBlock = byHourBlock.reduce((a, b) => (b.count > a.count ? b : a), byHourBlock[0]);
 
     const doneDays = new Set(done.map((t) => dayKey(new Date(t.completedAt))));
+    const isWeekday = (d) => { const day = d.getDay(); return day >= 1 && day <= 5; };
+
     let currentStreak = 0;
-    for (let i = 0; ; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-      if (doneDays.has(dayKey(d))) currentStreak++;
-      else if (i === 0) continue;
-      else break;
+    let checkDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (!isWeekday(checkDate)) {
+      while (!isWeekday(checkDate)) {
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
     }
-    let bestStreak = 0, run = 0, prevDate = null;
+
+    for (let i = 0; ; i++) {
+      const d = new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate() - i);
+      while (!isWeekday(d)) {
+        d.setDate(d.getDate() - 1);
+      }
+      const k = dayKey(d);
+      if (doneDays.has(k)) {
+        currentStreak++;
+      } else if (i === 0) {
+        continue;
+      } else {
+        break;
+      }
+    }
+
+    let bestStreak = 0, run = 0, prevWeekday = null;
     [...doneDays].sort().forEach((k) => {
       const [y, m, d] = k.split("-").map(Number);
       const cur = new Date(y, m - 1, d);
-      run = prevDate && (cur - prevDate) / 86400000 === 1 ? run + 1 : 1;
+      if (!isWeekday(cur)) return;
+
+      if (!prevWeekday) {
+        run = 1;
+      } else {
+        let diffDays = 0;
+        let tempDate = new Date(prevWeekday);
+        while (tempDate < cur) {
+          tempDate.setDate(tempDate.getDate() + 1);
+          if (isWeekday(tempDate)) diffDays++;
+        }
+        run = diffDays === 1 ? run + 1 : 1;
+      }
       bestStreak = Math.max(bestStreak, run);
-      prevDate = cur;
+      prevWeekday = cur;
     });
 
     const last7 = byDay30.slice(-7).reduce((s, d) => s + d.count, 0);
@@ -788,6 +852,7 @@ function CommandWeeklyTaskTracker() {
       let title = "Confirm Action", msg = "Are you sure?", btn = "YES", color = ACCENT.rose;
       if (confirmAction.type === 'delete') { title = "Delete Task"; msg = "This task will be permanently removed."; }
       if (confirmAction.type === 'complete' || confirmAction.type === 'finish') { title = "Complete Task"; msg = "Mark this task as finished and freeze the timer?"; btn = "COMPLETE"; color = ACCENT.teal; }
+      if (confirmAction.type === 'signout') { title = "Sign Out"; msg = "Are you sure you want to sign out?"; btn = "SIGN OUT"; color = ACCENT.rose; }
       if (confirmAction.type === 'reset') { title = "NUCLEAR RESET"; msg = "Are you absolutely sure? This will wipe all tasks, history, custom labels, and analytics permanently."; btn = "NUKE IT"; }
       return <ConfirmModal title={title} message={msg} onConfirm={executeConfirmAction} onCancel={() => setConfirmAction(null)} confirmText={btn} confirmColor={color} />;
     }
@@ -945,7 +1010,17 @@ function CommandWeeklyTaskTracker() {
   const onTimeRate = analytics.onTime + analytics.late > 0 ? Math.round((analytics.onTime / (analytics.onTime + analytics.late)) * 100) : null;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 px-4 py-8 sm:px-8 flex flex-col">
+    <div className="min-h-screen bg-slate-950 text-slate-200 px-4 py-8 sm:px-8 flex flex-col relative">
+      {/* 24-Hour Ticking System Clock in top right corner */}
+      <div className="absolute top-4 right-4 sm:right-8 bg-slate-900 border border-slate-800 rounded px-3 py-1 font-mono text-xs text-teal-400 tracking-widest shadow-lg flex items-center gap-2">
+        <span className="text-teal-400 font-bold">🕒</span>
+        {String(systemClock.getHours()).padStart(2, "0")}
+        <span style={{ opacity: tickToggle ? 1 : 0.2 }}>:</span>
+        {String(systemClock.getMinutes()).padStart(2, "0")}
+        <span style={{ opacity: tickToggle ? 1 : 0.2 }}>:</span>
+        {String(systemClock.getSeconds()).padStart(2, "0")}
+      </div>
+
       {celebrate && <Confetti />}
       {renderModals()}
 
@@ -957,29 +1032,64 @@ function CommandWeeklyTaskTracker() {
               {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
           </div>
           <div className="flex gap-2">
-            {!askingName && window.auth && (
-              <button onClick={() => window.auth.signOut()} className="font-mono text-[10px] tracking-widest px-3 py-1.5 rounded border border-rose-900 bg-rose-950/40 text-rose-400 hover:text-white transition-colors">SIGN OUT</button>
-            )}
             <button onClick={() => setTvMode(true)} className="font-mono text-[10px] tracking-widest px-3 py-1.5 rounded border border-slate-700 bg-slate-900 text-slate-400 hover:text-white transition-colors hidden sm:block">📺 TV MODE</button>
           </div>
         </header>
 
-        <section className="bg-slate-900 border border-slate-800 rounded-lg p-6 mb-6 flex flex-col sm:flex-row items-center gap-6">
-          <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} />
-          <div className="text-center sm:text-left">
-            <h2 className="font-mono text-sm tracking-widest text-slate-400 mb-2">ACTIVE WEEK PROGRESS: <span className="text-white font-bold">{pct}% COMPLETED</span></h2>
-            <p className="text-sm text-slate-500">{pct === 100 && weekTotal > 0 ? <span className="font-mono tracking-widest" style={{ color: ACCENT.teal }}>✓ ALL TASKS SECURED.</span> : `Knock out ${weekTotal - weekCompleted} more tasks to close out this week.`}</p>
-          </div>
-        </section>
-
+        {/* Separated Navigation Bar: Home, Active Tasks, History, Analytics */}
         <nav className="flex gap-1 mb-6 bg-slate-900 border border-slate-800 rounded-lg p-1">
-          <button onClick={() => setTab("tasks")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "tasks" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ACTIVE TASKS ({activeTasks.length})</button>
-          <button onClick={() => setTab("history")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "history" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>HISTORY & ANALYTICS ({historyTasks.length})</button>
+          <button onClick={() => setTab("home")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "home" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>HOME</button>
+          <button onClick={() => setTab("tasks")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "tasks" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>TASKS ({activeTasks.length})</button>
+          <button onClick={() => setTab("history")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "history" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>HISTORY ({historyTasks.length})</button>
+          <button onClick={() => setTab("analytics")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "analytics" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ANALYTICS</button>
         </nav>
 
+        {/* HOME WELCOME TAB */}
+        {tab === "home" && (
+          <div className="space-y-6">
+            <section className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center flex flex-col items-center">
+              <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} size={210} stroke={16} />
+              <h2 className="font-mono text-base tracking-widest text-slate-300 mt-6 mb-2">ACTIVE WEEK PROGRESS: <span className="text-white font-bold">{pct}% COMPLETED</span></h2>
+              <p className="text-sm text-slate-500 mb-8 max-w-md">{pct === 100 && weekTotal > 0 ? <span className="font-mono tracking-widest" style={{ color: ACCENT.teal }}>✓ ALL TASKS SECURED FOR THE WEEK.</span> : `Knock out ${weekTotal - weekCompleted} more tasks to close out your weekly quota.`}</p>
+              
+              <div className="flex flex-wrap justify-center gap-4">
+                <button onClick={() => setTab("tasks")} className="font-mono text-xs font-bold tracking-widest px-6 py-3 rounded transition-transform active:scale-95" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>VIEW ACTIVE TASKS ➔</button>
+                <button onClick={() => setTab("analytics")} className="font-mono text-xs font-bold tracking-widest px-6 py-3 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">EXPLORE ANALYTICS</button>
+              </div>
+            </section>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-slate-900 border border-slate-800 rounded-lg p-5">
+                <p className="font-mono text-[10px] tracking-widest text-slate-500 mb-1">QUICK STAT</p>
+                <p className="text-2xl font-bold text-white">{activeTasks.length}</p>
+                <p className="font-mono text-xs text-slate-400 mt-1">Pending Active Tasks</p>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-lg p-5">
+                <p className="font-mono text-[10px] tracking-widest text-slate-500 mb-1">LIFETIME</p>
+                <p className="text-2xl font-bold" style={{ color: ACCENT.teal }}>{analytics.totalDone}</p>
+                <p className="font-mono text-xs text-slate-400 mt-1">Completed Tasks Logged</p>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-lg p-5">
+                <p className="font-mono text-[10px] tracking-widest text-slate-500 mb-1">WEEKDAY STREAK</p>
+                <p className="text-2xl font-bold" style={{ color: ACCENT.amber }}>{analytics.currentStreak}d</p>
+                <p className="font-mono text-xs text-slate-400 mt-1">Consecutive Workdays</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ACTIVE TASKS TAB */}
         {tab === "tasks" && (
           <React.Fragment>
-            <section className="bg-slate-900 border border-slate-800 rounded-lg p-3 mb-6">
+            <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4 flex items-center gap-6">
+              <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} size={110} stroke={10} />
+              <div className="flex-1">
+                <h2 className="font-mono text-xs tracking-widest text-slate-400 mb-1">WEEKLY PROGRESS: <span className="text-white font-bold">{pct}%</span></h2>
+                <p className="text-xs text-slate-500">{pct === 100 && weekTotal > 0 ? <span className="font-mono" style={{ color: ACCENT.teal }}>✓ ALL SECURED.</span> : `${weekTotal - weekCompleted} tasks remaining this week.`}</p>
+              </div>
+            </section>
+
+            <section className="bg-slate-900 border border-slate-800 rounded-lg p-3 mb-4">
               <div className="flex flex-col lg:flex-row gap-2">
                 <input value={newText} onChange={(e) => setNewText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder="Add a new task…" className={"flex-1 bg-slate-800 border rounded px-3 py-1.5 text-sm text-white focus:outline-none " + (attemptedSubmit && !newText.trim() ? "border-rose-500" : "border-slate-700")} />
                 <div className="flex flex-wrap sm:flex-nowrap gap-2">
@@ -994,197 +1104,283 @@ function CommandWeeklyTaskTracker() {
               </div>
             </section>
 
-            <section className="space-y-3">
-              {activeTasks.length === 0 && <div className="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center text-slate-500 font-mono text-sm tracking-widest">BOARD CLEAR. CHECK HISTORY & ANALYTICS.</div>}
-              {activeTasks.map((t) => {
-                const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label), running = !!t.runningSince, ms = elapsedMs(t, nowTs), thisWeek = inActiveWeek(t);
-                return (
-                  <div key={t.id} className={"bg-slate-900 border border-slate-800 rounded-lg p-4 " + (!thisWeek ? "opacity-70" : "")} style={{ borderLeft: "4px solid " + pm.color }}>
-                    <div className="flex items-start gap-3">
-                      <button onClick={() => triggerAction('complete', t.id)} className="mt-0.5 w-6 h-6 shrink-0 rounded border-2 flex items-center justify-center transition-colors hover:border-slate-400" style={{ borderColor: "#475569" }} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm sm:text-base text-white">{t.text}</p>
-                        <div className="flex flex-wrap items-center gap-2 mt-2">
-                          {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
-                          <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
-                          {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
+            {/* Sort & View Controls Bar */}
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-3 mb-4 bg-slate-900 border border-slate-800 rounded-lg px-4 py-2.5">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <span className="font-mono text-[10px] tracking-widest text-slate-400">SORT BY:</span>
+                <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} className="bg-slate-800 border border-slate-700 rounded px-2.5 py-1 text-xs text-white focus:outline-none font-mono">
+                  <option value="default">Smart Default (Weekly First)</option>
+                  <option value="priority_high_low">Priority: Highest to Lowest</option>
+                  <option value="priority_low_high">Priority: Lowest to Highest</option>
+                  <option value="due_soonest">Due Date: Soonest First</option>
+                  <option value="due_earliest">Due Date: Distant First</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded border border-slate-800 w-full sm:w-auto justify-end">
+                <button onClick={() => setViewMode("list")} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded transition-colors" style={viewMode === "list" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>☰ LIST</button>
+                <button onClick={() => setViewMode("grid")} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded transition-colors" style={viewMode === "grid" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>⊞ FINDER TILES</button>
+              </div>
+            </div>
+
+            {activeTasks.length === 0 ? (
+              <div className="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center text-slate-500 font-mono text-sm tracking-widest">BOARD CLEAR. CHECK HISTORY & ANALYTICS.</div>
+            ) : viewMode === "list" ? (
+              <section className="space-y-3">
+                {activeTasks.map((t) => {
+                  const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label), running = !!t.runningSince, ms = elapsedMs(t, nowTs), thisWeek = inActiveWeek(t);
+                  return (
+                    <div key={t.id} className={"bg-slate-900 border border-slate-800 rounded-lg p-4 " + (!thisWeek ? "opacity-70" : "")} style={{ borderLeft: "4px solid " + pm.color }}>
+                      <div className="flex items-start gap-3">
+                        <button onClick={() => triggerAction('complete', t.id)} className="mt-0.5 w-6 h-6 shrink-0 rounded border-2 flex items-center justify-center transition-colors hover:border-slate-400" style={{ borderColor: "#475569" }} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm sm:text-base text-white">{t.text}</p>
+                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                            {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
+                            <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
+                            {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
+                            <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
+                            <button onClick={() => toggleTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={running ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{running ? "❚❚ PAUSE" : ms > 0 ? "▶ RESUME" : "▶ START"}</button>
+                            <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓ FINISH</button>
+                          </div>
+                          <TaskNotes task={t} onSaveNote={saveTaskNote} />
                         </div>
-                        <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
-                          <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
-                          <button onClick={() => toggleTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={running ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{running ? "❚❚ PAUSE" : ms > 0 ? "▶ RESUME" : "▶ START"}</button>
-                          <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓ FINISH</button>
+                        <div className="flex gap-1 shrink-0">
+                          <button onClick={() => moveToNextWeek(t.id)} title="Push out 7 days" className="p-2 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 3.5v8l5-4-5-4zM8 3.5v8l5-4-5-4z" fill="currentColor" /></svg></button>
+                          <button onClick={() => setEditingTask(t)} title="Edit task" className="p-2 rounded text-slate-500 hover:text-white hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10.5 2.5l2 2L5 12l-2.5.5L3 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg></button>
+                          <button onClick={() => triggerAction('delete', t.id)} title="Delete task" className="p-2 rounded text-slate-500 hover:text-rose-500 hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
                         </div>
-                        <TaskNotes task={t} onSaveNote={saveTaskNote} />
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        <button onClick={() => moveToNextWeek(t.id)} title="Push out 7 days" className="p-2 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 3.5v8l5-4-5-4zM8 3.5v8l5-4-5-4z" fill="currentColor" /></svg></button>
-                        <button onClick={() => setEditingTask(t)} title="Edit task" className="p-2 rounded text-slate-500 hover:text-white hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10.5 2.5l2 2L5 12l-2.5.5L3 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg></button>
-                        <button onClick={() => triggerAction('delete', t.id)} title="Delete task" className="p-2 rounded text-slate-500 hover:text-rose-500 hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </section>
+            ) : (
+              <section className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {activeTasks.map((t) => {
+                  const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label), running = !!t.runningSince, ms = elapsedMs(t, nowTs), thisWeek = inActiveWeek(t);
+                  return (
+                    <div key={t.id} className={"bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between " + (!thisWeek ? "opacity-70" : "")} style={{ borderTop: "4px solid " + pm.color }}>
+                      <div>
+                        <div className="flex justify-between items-start gap-2 mb-2">
+                          <button onClick={() => triggerAction('complete', t.id)} className="w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center transition-colors hover:border-slate-400 mt-0.5" style={{ borderColor: "#475569" }} />
+                          <div className="flex gap-1">
+                            <button onClick={() => moveToNextWeek(t.id)} title="Push out 7 days" className="p-1.5 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><svg width="13" height="13" viewBox="0 0 15 15" fill="none"><path d="M2 3.5v8l5-4-5-4zM8 3.5v8l5-4-5-4z" fill="currentColor" /></svg></button>
+                            <button onClick={() => setEditingTask(t)} title="Edit task" className="p-1.5 rounded text-slate-500 hover:text-white hover:bg-slate-800"><svg width="13" height="13" viewBox="0 0 15 15" fill="none"><path d="M10.5 2.5l2 2L5 12l-2.5.5L3 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg></button>
+                            <button onClick={() => triggerAction('delete', t.id)} title="Delete task" className="p-1.5 rounded text-slate-500 hover:text-rose-500 hover:bg-slate-800"><svg width="13" height="13" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
+                          </div>
+                        </div>
+                        <p className="text-sm text-white font-medium mb-3 leading-snug">{t.text}</p>
+                        <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                          {t.label && <span className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
+                          <span className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
+                          {t.due && <span className="font-mono text-[9px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-800 rounded px-2.5 py-1 mb-2 w-fit">
+                          <span className="font-mono text-xs font-bold tabular-nums tracking-wider" style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
+                          <div className="flex gap-1">
+                            <button onClick={() => toggleTimer(t.id)} className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={running ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{running ? "❚❚" : "▶"}</button>
+                            <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓</button>
+                          </div>
+                        </div>
+                        <TaskNotes task={t} onSaveNote={saveTaskNote} compact />
+                      </div>
+                    </div>
+                  );
+                })}
+              </section>
+            )}
+          </React.Fragment>
+        )}
+
+        {/* HISTORY (COMPLETED LOG) TAB */}
+        {tab === "history" && (
+          <React.Fragment>
+            <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6 flex items-center gap-6">
+              <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} size={110} stroke={10} />
+              <div className="flex-1">
+                <h2 className="font-mono text-xs tracking-widest text-slate-400 mb-1">WEEKLY PROGRESS: <span className="text-white font-bold">{pct}%</span></h2>
+                <p className="text-xs text-slate-500">Reviewing completed historical tasks and logs.</p>
+              </div>
+            </section>
+
+            <section className="space-y-2 mb-10">
+              <h3 className="font-mono text-xs tracking-widest text-slate-400 mb-2">COMPLETION LOG ({historyTasks.length})</h3>
+              {historyTasks.length === 0 ? (
+                <div className="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center text-slate-500 font-mono text-sm tracking-widest">NO COMPLETED TASKS LOGGED YET.</div>
+              ) : (
+                historyTasks.map((t) => {
+                  const pm = priorityMeta(t.priority);
+                  return (
+                    <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-lg p-3 flex items-start gap-3" style={{ borderLeft: "4px solid " + pm.color + "55" }}>
+                      <button onClick={() => uncheckTask(t.id)} className="mt-0.5 w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center" style={{ borderColor: ACCENT.teal, backgroundColor: ACCENT.teal }}><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5L5.5 11L12 3.5" stroke="#04241f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-slate-400 line-through">{t.text}</p>
+                        <div className="flex gap-2 mt-1.5 font-mono text-[10px] tracking-widest text-slate-500">
+                            <span style={{ color: ACCENT.teal }}>✓ {fmtStamp(t.completedAt)}</span>
+                            {(t.timeMs || 0) > 0 && <span style={{ color: ACCENT.amber }}>⏱ {fmtDuration(t.timeMs)}</span>}
+                        </div>
+                        <TaskNotes task={t} onSaveNote={saveTaskNote} compact />
+                      </div>
+                      <button onClick={() => triggerAction('delete', t.id)} className="p-1.5 rounded text-slate-600 hover:text-rose-500 hover:bg-slate-800"><svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
+                    </div>
+                  );
+                })
+              )}
             </section>
           </React.Fragment>
         )}
 
-        {tab === "history" && (
-            <React.Fragment>
-              {analytics.totalDone > 0 ? (
-                <React.Fragment>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-                    <KpiCard label="COMPLETED" value={analytics.totalDone} sub="LIFETIME" />
-                    <KpiCard label="ON-TIME RATE" value={onTimeRate !== null ? onTimeRate + "%" : "—"} sub={analytics.onTime + " ON TIME / " + analytics.late + " LATE"} color={onTimeRate === null ? "#64748b" : onTimeRate >= 80 ? ACCENT.teal : onTimeRate >= 50 ? ACCENT.amber : ACCENT.rose} />
-                    <KpiCard label="MEDIAN LEAD" value={analytics.medianLead !== null ? Math.abs(analytics.medianLead).toFixed(1) + "d" : "—"} sub={analytics.medianLead === null ? "NO DATED TASKS" : analytics.medianLead >= 0 ? "EARLY (TYPICAL)" : "LATE (TYPICAL)"} color={analytics.medianLead === null ? "#64748b" : analytics.medianLead >= 0 ? ACCENT.teal : ACCENT.rose} />
-                    <KpiCard label="TIME TRACKED" value={analytics.totalTrackedMs > 0 ? fmtMinutes(analytics.totalTrackedMs) : "—"} sub={analytics.timedCount + " CLOCKED TASK" + (analytics.timedCount === 1 ? "" : "S")} color={analytics.totalTrackedMs > 0 ? ACCENT.teal : "#64748b"} />
-                    <KpiCard label="STREAK" value={analytics.currentStreak + "d"} sub={"BEST: " + analytics.bestStreak + "d"} color={analytics.currentStreak > 0 ? ACCENT.teal : "#64748b"} />
-                    <KpiCard label="PEAK WINDOW" value={analytics.peakBlock.count > 0 ? analytics.peakBlock.label : "—"} sub={analytics.busiestDay.count > 0 ? "BUSIEST DAY: " + analytics.busiestDay.label.toUpperCase() : "NO PATTERN YET"} />
-                  </div>
+        {/* ANALYTICS TAB */}
+        {tab === "analytics" && (
+          <React.Fragment>
+            <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6 flex items-center gap-6">
+              <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} size={110} stroke={10} />
+              <div className="flex-1">
+                <h2 className="font-mono text-xs tracking-widest text-slate-400 mb-1">COMMAND ANALYTICS ENGINE</h2>
+                <p className="text-xs text-slate-500">Tracking throughput, efficiency metrics, and shop performance charts.</p>
+              </div>
+            </section>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                    <ChartCard wide title="TIME EFFICIENCY BY CATEGORY" subtitle="Average (teal) and total (amber) clocked minutes per label.">
-                      {analytics.timeByLabel.length > 0 ? (
-                        <ResponsiveContainer width="100%" height={220}>
-                          <BarChart data={analytics.timeByLabel} margin={{ top: 16, right: 4, left: -20, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                            <XAxis dataKey="label" tick={axisTickLight} />
-                            <YAxis tick={axisTick} label={{ value: "minutes", angle: -90, position: "insideLeft", fill: "#475569", fontSize: 9, fontFamily: "monospace" }} />
-                            <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v, name) => [v + " min", name]} labelFormatter={(label, payload) => { const p = payload && payload[0] && payload[0].payload; return p ? label + " (" + p.count + " task" + (p.count === 1 ? "" : "s") + ")" : label; }} />
-                            <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
-                            <Bar dataKey="avgMin" name="Avg per task" fill={ACCENT.teal} radius={[3, 3, 0, 0]}>
-                              <LabelList dataKey="avgMin" position="top" formatter={(v) => v + "m"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
-                            </Bar>
-                            <Bar dataKey="totalMin" name="Total" fill={ACCENT.amber} radius={[3, 3, 0, 0]}>
-                              <LabelList dataKey="totalMin" position="top" formatter={(v) => v + "m"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <p className="text-xs text-slate-600 font-mono py-6 text-center">Clock time on a task with ▶ START, then ✓ FINISH it.</p>
-                      )}
-                      {analytics.slowest && (
-                        <p className="font-mono text-[10px] tracking-widest text-slate-500 mt-2">HEAVIEST CATEGORY: <span style={{ color: ACCENT.amber }}>#{analytics.slowest.label}</span> AT {analytics.slowest.avgMin} MIN AVG</p>
-                      )}
-                    </ChartCard>
-
-                    <ChartCard wide title={"DAILY THROUGHPUT — LAST " + chartRange + " DAYS"} subtitle="Bars: tasks completed per day. Line: 7-day rolling average." action={<div className="flex gap-1">{[14, 30].map((r) => (<button key={r} onClick={() => setChartRange(r)} className="font-mono text-[10px] font-bold tracking-widest px-2.5 py-1 rounded" style={chartRange === r ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b", border: "1px solid #334155" }}>{r}D</button>))}</div>}>
-                      <ResponsiveContainer width="100%" height={200}>
-                        <ComposedChart data={analytics.byDay30.slice(-chartRange)} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                          <XAxis dataKey="label" tick={axisTick} interval={chartRange === 30 ? 3 : 1} />
-                          <YAxis allowDecimals={false} tick={axisTick} />
-                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
-                          <Bar dataKey="count" name="Completed" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
-                          <Line type="monotone" dataKey="avg7" name="7-day avg" stroke={ACCENT.amber} strokeWidth={2} dot={false} />
-                        </ComposedChart>
-                      </ResponsiveContainer>
-                    </ChartCard>
-
-                    <ChartCard wide title="LEAD TIME PER TASK — LAST 12 DATED COMPLETIONS" subtitle="Days ahead of (teal) or behind (rose) the deadline.">
-                      {analytics.leadPerTask.length > 0 ? (
-                        <ResponsiveContainer width="100%" height={Math.max(160, analytics.leadPerTask.length * 28 + 40)}>
-                          <BarChart data={analytics.leadPerTask} layout="vertical" margin={{ top: 4, right: 36, left: 8, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-                            <XAxis type="number" tick={axisTick} />
-                            <YAxis type="category" dataKey="name" width={150} tick={axisTickLight} />
-                            <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v) => [v >= 0 ? v + "d early" : Math.abs(v) + "d late", "Lead"]} labelFormatter={(label, payload) => (payload && payload[0] && payload[0].payload.fullName) || label} />
-                            <ReferenceLine x={0} stroke="#475569" strokeWidth={1.5} />
-                            <Bar dataKey="lead" radius={[0, 3, 3, 0]}>
-                              {analytics.leadPerTask.map((d, i) => <Cell key={i} fill={d.fill} />)}
-                              <LabelList dataKey="lead" position="right" formatter={(v) => (v > 0 ? "+" : "") + v + "d"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <p className="text-xs text-slate-600 font-mono py-6 text-center">Complete a task that has a due date to populate this chart.</p>
-                      )}
-                    </ChartCard>
-
-                    <ChartCard title="RELIABILITY BY PRIORITY" subtitle="On-time (teal) vs late (rose) per tier.">
-                      <ResponsiveContainer width="100%" height={190}>
-                        <BarChart data={analytics.priorityReliability} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                          <XAxis dataKey="label" tick={axisTick} />
-                          <YAxis allowDecimals={false} tick={axisTick} />
-                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
-                          <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
-                          <Bar dataKey="onTime" name="On time" stackId="r" fill={ACCENT.teal} />
-                          <Bar dataKey="late" name="Late" stackId="r" fill={ACCENT.rose} radius={[3, 3, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </ChartCard>
-
-                    <ChartCard title="COMPLETIONS BY DAY OF WEEK" subtitle="Busiest day highlighted amber.">
-                      <ResponsiveContainer width="100%" height={190}>
-                        <BarChart data={analytics.byWeekday} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                          <XAxis dataKey="label" tick={axisTick} />
-                          <YAxis allowDecimals={false} tick={axisTick} />
-                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
-                          <Bar dataKey="count" name="Completed" radius={[3, 3, 0, 0]}>
-                            {analytics.byWeekday.map((d, i) => (
-                              <Cell key={i} fill={d.label === analytics.busiestDay.label && d.count > 0 ? ACCENT.amber : ACCENT.teal} />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </ChartCard>
-
-                    <ChartCard wide title="COMPLETIONS BY TIME OF DAY" subtitle="3-hour blocks. Peak block highlighted amber.">
-                      <ResponsiveContainer width="100%" height={170}>
-                        <BarChart data={analytics.byHourBlock} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                          <XAxis dataKey="label" tick={axisTick} />
-                          <YAxis allowDecimals={false} tick={axisTick} />
-                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
-                          <Bar dataKey="count" name="Completed" radius={[3, 3, 0, 0]}>
-                            {analytics.byHourBlock.map((d, i) => (
-                              <Cell key={i} fill={d.label === analytics.peakBlock.label && d.count > 0 ? ACCENT.amber : ACCENT.teal} />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </ChartCard>
-                  </div>
-                </React.Fragment>
-              ) : (
-                <div className="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center mb-6">
-                  <p className="font-mono text-sm text-slate-500 tracking-widest">
-                    NO COMPLETED TASKS YET. THE DASHBOARD BUILDS AS YOU CHECK THINGS OFF.
-                  </p>
+            {analytics.totalDone > 0 ? (
+              <React.Fragment>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+                  <KpiCard label="COMPLETED" value={analytics.totalDone} sub="LIFETIME" />
+                  <KpiCard label="ON-TIME RATE" value={onTimeRate !== null ? onTimeRate + "%" : "—"} sub={analytics.onTime + " ON TIME / " + analytics.late + " LATE"} color={onTimeRate === null ? "#64748b" : onTimeRate >= 80 ? ACCENT.teal : onTimeRate >= 50 ? ACCENT.amber : ACCENT.rose} />
+                  <KpiCard label="MEDIAN LEAD" value={analytics.medianLead !== null ? Math.abs(analytics.medianLead).toFixed(1) + "d" : "—"} sub={analytics.medianLead === null ? "NO DATED TASKS" : analytics.medianLead >= 0 ? "EARLY (TYPICAL)" : "LATE (TYPICAL)"} color={analytics.medianLead === null ? "#64748b" : analytics.medianLead >= 0 ? ACCENT.teal : ACCENT.rose} />
+                  <KpiCard label="TIME TRACKED" value={analytics.totalTrackedMs > 0 ? fmtMinutes(analytics.totalTrackedMs) : "—"} sub={analytics.timedCount + " CLOCKED TASK" + (analytics.timedCount === 1 ? "" : "S")} color={analytics.totalTrackedMs > 0 ? ACCENT.teal : "#64748b"} />
+                  <KpiCard label="WEEKDAY STREAK" value={analytics.currentStreak + "d"} sub={"BEST: " + analytics.bestStreak + "d"} color={analytics.currentStreak > 0 ? ACCENT.teal : "#64748b"} />
+                  <KpiCard label="PEAK WINDOW" value={analytics.peakBlock.count > 0 ? analytics.peakBlock.label : "—"} sub={analytics.busiestDay.count > 0 ? "BUSIEST DAY: " + analytics.busiestDay.label.toUpperCase() : "NO PATTERN YET"} />
                 </div>
-              )}
 
-              <section className="space-y-2 mb-10">
-                  <h3 className="font-mono text-xs tracking-widest text-slate-400 mb-2">COMPLETION LOG</h3>
-                  {historyTasks.map((t) => {
-                    const pm = priorityMeta(t.priority);
-                    return (
-                      <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-lg p-3 flex items-start gap-3" style={{ borderLeft: "4px solid " + pm.color + "55" }}>
-                        <button onClick={() => uncheckTask(t.id)} className="mt-0.5 w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center" style={{ borderColor: ACCENT.teal, backgroundColor: ACCENT.teal }}><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5L5.5 11L12 3.5" stroke="#04241f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-slate-400 line-through">{t.text}</p>
-                          <div className="flex gap-2 mt-1.5 font-mono text-[10px] tracking-widest text-slate-500">
-                              <span style={{ color: ACCENT.teal }}>✓ {fmtStamp(t.completedAt)}</span>
-                              {(t.timeMs || 0) > 0 && <span style={{ color: ACCENT.amber }}>⏱ {fmtDuration(t.timeMs)}</span>}
-                          </div>
-                          <TaskNotes task={t} onSaveNote={saveTaskNote} compact />
-                        </div>
-                        <button onClick={() => triggerAction('delete', t.id)} className="p-1.5 rounded text-slate-600 hover:text-rose-500 hover:bg-slate-800"><svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
-                      </div>
-                    );
-                  })}
-              </section>
-            </React.Fragment>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  <ChartCard wide title="TIME EFFICIENCY BY CATEGORY" subtitle="Average (teal) and total (amber) clocked minutes per label.">
+                    {analytics.timeByLabel.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={220}>
+                        <BarChart data={analytics.timeByLabel} margin={{ top: 16, right: 4, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                          <XAxis dataKey="label" tick={axisTickLight} />
+                          <YAxis tick={axisTick} label={{ value: "minutes", angle: -90, position: "insideLeft", fill: "#475569", fontSize: 9, fontFamily: "monospace" }} />
+                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v, name) => [v + " min", name]} labelFormatter={(label, payload) => { const p = payload && payload[0] && payload[0].payload; return p ? label + " (" + p.count + " task" + (p.count === 1 ? "" : "s") + ")" : label; }} />
+                          <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
+                          <Bar dataKey="avgMin" name="Avg per task" fill={ACCENT.teal} radius={[3, 3, 0, 0]}>
+                            <LabelList dataKey="avgMin" position="top" formatter={(v) => v + "m"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
+                          </Bar>
+                          <Bar dataKey="totalMin" name="Total" fill={ACCENT.amber} radius={[3, 3, 0, 0]}>
+                            <LabelList dataKey="totalMin" position="top" formatter={(v) => v + "m"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="text-xs text-slate-600 font-mono py-6 text-center">Clock time on a task with ▶ START, then ✓ FINISH it.</p>
+                    )}
+                    {analytics.slowest && (
+                      <p className="font-mono text-[10px] tracking-widest text-slate-500 mt-2">HEAVIEST CATEGORY: <span style={{ color: ACCENT.amber }}>#{analytics.slowest.label}</span> AT {analytics.slowest.avgMin} MIN AVG</p>
+                    )}
+                  </ChartCard>
+
+                  <ChartCard wide title={"DAILY THROUGHPUT — LAST " + chartRange + " DAYS"} subtitle="Bars: tasks completed per day. Line: 7-day rolling average." action={<div className="flex gap-1">{[14, 30].map((r) => (<button key={r} onClick={() => setChartRange(r)} className="font-mono text-[10px] font-bold tracking-widest px-2.5 py-1 rounded" style={chartRange === r ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b", border: "1px solid #334155" }}>{r}D</button>))}</div>}>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <ComposedChart data={analytics.byDay30.slice(-chartRange)} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="label" tick={axisTick} interval={chartRange === 30 ? 3 : 1} />
+                        <YAxis allowDecimals={false} tick={axisTick} />
+                        <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
+                        <Bar dataKey="count" name="Completed" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
+                        <Line type="monotone" dataKey="avg7" name="7-day avg" stroke={ACCENT.amber} strokeWidth={2} dot={false} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </ChartCard>
+
+                  <ChartCard wide title="LEAD TIME PER TASK — LAST 12 DATED COMPLETIONS" subtitle="Days ahead of (teal) or behind (rose) the deadline.">
+                    {analytics.leadPerTask.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={Math.max(160, analytics.leadPerTask.length * 28 + 40)}>
+                        <BarChart data={analytics.leadPerTask} layout="vertical" margin={{ top: 4, right: 36, left: 8, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                          <XAxis type="number" tick={axisTick} />
+                          <YAxis type="category" dataKey="name" width={150} tick={axisTickLight} />
+                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v) => [v >= 0 ? v + "d early" : Math.abs(v) + "d late", "Lead"]} labelFormatter={(label, payload) => (payload && payload[0] && payload[0].payload.fullName) || label} />
+                          <ReferenceLine x={0} stroke="#475569" strokeWidth={1.5} />
+                          <Bar dataKey="lead" radius={[0, 3, 3, 0]}>
+                            {analytics.leadPerTask.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                            <LabelList dataKey="lead" position="right" formatter={(v) => (v > 0 ? "+" : "") + v + "d"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="text-xs text-slate-600 font-mono py-6 text-center">Complete a task that has a due date to populate this chart.</p>
+                    )}
+                  </ChartCard>
+
+                  <ChartCard title="RELIABILITY BY PRIORITY" subtitle="On-time (teal) vs late (rose) per tier.">
+                    <ResponsiveContainer width="100%" height={190}>
+                      <BarChart data={analytics.priorityReliability} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="label" tick={axisTick} />
+                        <YAxis allowDecimals={false} tick={axisTick} />
+                        <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
+                        <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
+                        <Bar dataKey="onTime" name="On time" stackId="r" fill={ACCENT.teal} />
+                        <Bar dataKey="late" name="Late" stackId="r" fill={ACCENT.rose} radius={[3, 3, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartCard>
+
+                  <ChartCard title="COMPLETIONS BY DAY OF WEEK" subtitle="Busiest day highlighted amber.">
+                    <ResponsiveContainer width="100%" height={190}>
+                      <BarChart data={analytics.byWeekday} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="label" tick={axisTick} />
+                        <YAxis allowDecimals={false} tick={axisTick} />
+                        <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
+                        <Bar dataKey="count" name="Completed" radius={[3, 3, 0, 0]}>
+                          {analytics.byWeekday.map((d, i) => (
+                            <Cell key={i} fill={d.label === analytics.busiestDay.label && d.count > 0 ? ACCENT.amber : ACCENT.teal} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartCard>
+
+                  <ChartCard wide title="COMPLETIONS BY TIME OF DAY" subtitle="3-hour blocks. Peak block highlighted amber.">
+                    <ResponsiveContainer width="100%" height={170}>
+                      <BarChart data={analytics.byHourBlock} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="label" tick={axisTick} />
+                        <YAxis allowDecimals={false} tick={axisTick} />
+                        <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
+                        <Bar dataKey="count" name="Completed" radius={[3, 3, 0, 0]}>
+                          {analytics.byHourBlock.map((d, i) => (
+                            <Cell key={i} fill={d.label === analytics.peakBlock.label && d.count > 0 ? ACCENT.amber : ACCENT.teal} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartCard>
+                </div>
+              </React.Fragment>
+            ) : (
+              <div className="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center mb-6">
+                <p className="font-mono text-sm text-slate-500 tracking-widest">
+                  NO COMPLETED TASKS YET. THE ANALYTICS ENGINE BUILDS AS YOU CHECK THINGS OFF.
+                </p>
+              </div>
+            )}
+          </React.Fragment>
         )}
       </div>
 
       <footer className="mt-12 flex flex-col items-center justify-center gap-4 border-t border-slate-800 pt-6 pb-4">
           <p className="font-mono text-xs text-slate-600 tracking-widest text-center">made by AZ2 Medrano, thank an AZ for showing up to work today :-)</p>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap justify-center gap-4">
               <button onClick={() => setManagingLabels(true)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-slate-500 hover:text-white transition-colors border border-slate-800 bg-slate-900">[ MANAGE LABELS ]</button>
               <button onClick={() => triggerAction('reset', null)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-slate-500 hover:text-rose-500 transition-colors border border-slate-800 bg-slate-900">[ FACTORY RESET ]</button>
+              {!askingName && window.auth && (
+                  <button onClick={() => triggerAction('signout', null)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-rose-400 hover:text-white transition-colors border border-rose-900 bg-rose-950/40">[ SIGN OUT ]</button>
+              )}
           </div>
       </footer>
     </div>
