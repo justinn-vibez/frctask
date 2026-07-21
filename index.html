@@ -337,11 +337,11 @@ function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }
   const activeLabel = labels.find(l => l.name === value);
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative h-10 flex items-center" ref={containerRef}>
       <select 
         value={value || ""} 
         onChange={handleSelect} 
-        className={"bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-slate-500 " + (compact ? "py-1.5" : "py-1.5")} 
+        className={"h-10 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-slate-500"} 
         style={{ borderLeft: activeLabel ? `4px solid ${activeLabel.color}` : '' }}
       >
         {labels.length === 0 && <option value="" disabled>No labels yet</option>}
@@ -650,7 +650,6 @@ function CommandWeeklyTaskTracker() {
   const commit = useCallback((updater, targetUid = null) => {
     const activeUid = targetUid || (window.auth && window.auth.currentUser ? window.auth.currentUser.uid : null);
     
-    // If delegating to another sailor, update state if viewing their board, or commit to Firestore
     setTasks((prev) => { 
       const next = typeof updater === "function" ? updater(prev) : updater; 
       if (!targetUid || (window.auth && window.auth.currentUser && targetUid === window.auth.currentUser.uid)) {
@@ -705,7 +704,6 @@ function CommandWeeklyTaskTracker() {
     const targetUid = assignedWorkerUid || (window.auth && window.auth.currentUser ? window.auth.currentUser.uid : null);
     
     if (targetUid && window.auth && window.auth.currentUser && targetUid !== window.auth.currentUser.uid) {
-      // Delegate to selected sailor's path directly
       if (window.db && window.dbOperations) {
         const { doc, setDoc } = window.dbOperations;
         setDoc(doc(window.db, "users", targetUid, "tasks", String(newTask.id)), newTask).catch(e => console.error("Error assigning task:", e));
@@ -1362,21 +1360,21 @@ function CommandWeeklyTaskTracker() {
             </section>
 
             <section className="bg-slate-900 border border-slate-800 rounded-lg p-3 mb-4">
-              <div className="flex flex-col lg:flex-row gap-2">
-                <input value={newText} onChange={(e) => setNewText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder="Add a new task…" className={"flex-1 bg-slate-800 border rounded px-3 py-1.5 text-sm text-white focus:outline-none " + (attemptedSubmit && !newText.trim() ? "border-rose-500" : "border-slate-700")} />
-                <div className="flex flex-wrap sm:flex-nowrap gap-2 items-center">
+              <div className="flex flex-col lg:flex-row items-center gap-2">
+                <input value={newText} onChange={(e) => setNewText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder="Add a new task…" className={"h-10 flex-1 w-full bg-slate-800 border rounded px-3 text-sm text-white focus:outline-none " + (attemptedSubmit && !newText.trim() ? "border-rose-500" : "border-slate-700")} />
+                <div className="flex flex-wrap sm:flex-nowrap gap-2 items-center w-full lg:w-auto">
                   <LabelPicker labels={labels} value={newLabel} onChange={setNewLabel} onCreateLabel={createLabel} />
-                  <select value={newPriority} onChange={(e) => setNewPriority(e.target.value)} className="bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 text-sm text-white focus:outline-none">
+                  <select value={newPriority} onChange={(e) => setNewPriority(e.target.value)} className="h-10 bg-slate-800 border border-slate-700 rounded px-2.5 text-sm text-white focus:outline-none">
                     {PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
                   </select>
-                  <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className={"bg-slate-800 border rounded px-2.5 py-1.5 text-sm text-white focus:outline-none " + (attemptedSubmit && !newDue ? "border-rose-500" : "border-slate-700")} />
+                  <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className={"h-10 bg-slate-800 border rounded px-2.5 text-sm text-white focus:outline-none " + (attemptedSubmit && !newDue ? "border-rose-500" : "border-slate-700")} />
                   
                   {(userRole === "supervisor" || userRole === "admin") && shopSailors.length > 0 && (
                     <select 
                       value={assignedWorkerUid} 
                       onChange={(e) => setAssignedWorkerUid(e.target.value)} 
                       title="Assign worker"
-                      className="bg-slate-800 border border-teal-500/50 rounded px-2.5 py-1.5 text-xs text-teal-300 focus:outline-none font-mono"
+                      className="h-10 bg-slate-800 border border-teal-500/50 rounded px-2.5 text-xs text-teal-300 focus:outline-none font-mono"
                     >
                       <option value="">👤 Assign to Me</option>
                       {shopSailors.map(s => (
@@ -1387,8 +1385,8 @@ function CommandWeeklyTaskTracker() {
                     </select>
                   )}
 
-                  <button onClick={() => setWritingNewNote(true)} className="font-mono text-xs font-bold tracking-widest px-3 py-1.5 rounded transition-colors" style={{ backgroundColor: newNote.trim() ? ACCENT.teal + "22" : "transparent", color: newNote.trim() ? ACCENT.teal : "#94a3b8", border: "1px solid " + (newNote.trim() ? ACCENT.teal + "66" : "#475569") }}>{newNote.trim() ? "📝 NOTE" : "📝 NOTE"}</button>
-                  <button onClick={addTask} className="font-mono text-xs font-bold tracking-widest px-4 py-1.5 rounded active:scale-95 transition-transform" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>+ ADD</button>
+                  <button onClick={() => setWritingNewNote(true)} className="h-10 font-mono text-xs font-bold tracking-widest px-3 rounded transition-colors flex items-center justify-center shrink-0" style={{ backgroundColor: newNote.trim() ? ACCENT.teal + "22" : "transparent", color: newNote.trim() ? ACCENT.teal : "#94a3b8", border: "1px solid " + (newNote.trim() ? ACCENT.teal + "66" : "#475569") }}>{newNote.trim() ? "📝 NOTE" : "📝 NOTE"}</button>
+                  <button onClick={addTask} className="h-10 font-mono text-xs font-bold tracking-widest px-4 rounded active:scale-95 transition-transform flex items-center justify-center shrink-0" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>+ ADD</button>
                 </div>
               </div>
             </section>
