@@ -292,6 +292,7 @@ function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }
   const [draftName, setDraftName] = useState("");
   const [draftColor, setDraftColor] = useState(LABEL_PALETTE[0]);
   const containerRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -303,13 +304,23 @@ function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [creating]);
 
+  useEffect(() => {
+    if (creating && inputRef.current) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 50);
+    }
+  }, [creating]);
+
   const handleSelect = (e) => {
-    if (e.target.value === "__new__") { 
+    const val = e.target.value;
+    if (val === "__new__") { 
       setCreating(true); 
       setDraftName(""); 
       setDraftColor(LABEL_PALETTE[0]); 
+      e.target.value = value || "";
     } else {
-      onChange(e.target.value);
+      onChange(val);
     }
   };
   
@@ -345,10 +356,10 @@ function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }
           </div>
           <div className="flex gap-1.5">
             <input 
+              ref={inputRef}
               value={draftName} 
               onChange={(e) => setDraftName(e.target.value)} 
               onKeyDown={(e) => { if (e.key === "Enter") confirmNew(); if (e.key === "Escape") setCreating(false); }} 
-              autoFocus 
               placeholder="Label name…" 
               className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-teal-400" 
             />
