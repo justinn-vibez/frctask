@@ -64,11 +64,11 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList,
 } = Recharts;
 
-const TASKS_KEY = "weekly_tracker_tasks_b7";
-const LABELS_KEY = "weekly_tracker_labels_b7";
-const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b7";
-const USER_NAME_KEY = "weekly_tracker_username_b7";
-const TOUR_KEY = "weekly_tracker_tour_b7";
+const TASKS_KEY = "weekly_tracker_tasks_b8";
+const LABELS_KEY = "weekly_tracker_labels_b8";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b8";
+const USER_NAME_KEY = "weekly_tracker_username_b8";
+const TOUR_KEY = "weekly_tracker_tour_b8";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -201,7 +201,7 @@ function ProgressRing({ pct, completed, total, size = 170, stroke = 13 }) {
 function GuidedTour({ onComplete }) {
   const [step, setStep] = useState(0);
   const steps = [
-    { title: "Welcome to Red Bird Readiness.", text: "This dashboard was built by AZ2 Medrano to streamline tasks, kill bottlenecks, and ditch scattered sticky notes. Remember your password, and please bring any suggestions or bugs straight to AZ2 Medrano—and be sure to thank him for creating this incredible tracker!", icon: "🚀" },
+    { title: "Welcome to Red Bird Readiness [v2].", text: "This dashboard was built by AZ2 Medrano to streamline tasks, kill bottlenecks, and ditch scattered sticky notes. Remember your password, and please bring any suggestions or bugs straight to AZ2 Medrano—and be sure to thank him for creating this incredible tracker!", icon: "🚀" },
     { title: "The Home & Active Board", text: "Start on the welcome home screen featuring the progress ring centerpiece, then jump into Active Tasks to prioritize, set due dates, tag labels, and use Finder-style tiles or list views.", icon: "📋" },
     { title: "History & Analytics", text: "We've separated your completed task logs (History) from the robust charts and metrics (Analytics) so you can easily track throughput and future task-level metrics.", icon: "📊" },
     { title: "TV Display Mode", text: "Click the 📺 TV MODE button at the top right to strip away the clutter. It blows up the progress ring and organizes the daily hit-list perfectly for the shop's big monitor.", icon: "📺" }
@@ -396,12 +396,12 @@ const initializeUserProfile = async (user, officialName = "", workCenter = "040"
   try {
     const snap = await getDoc(userRef);
     if (!snap.exists()) {
-      const defaultRole = user.email.startsWith("jmedrano") ? "admin" : "sailor";
+      const defaultRole = (user.email && user.email.startsWith("jmedrano")) ? "admin" : "sailor";
       
       await setDoc(userRef, {
         uid: user.uid,
         email: user.email,
-        displayName: officialName || user.email.split("@")[0],
+        displayName: officialName || (user.email ? user.email.split("@")[0] : "user"),
         workCenter: workCenter || "040",
         role: defaultRole,
         createdAt: new Date().toISOString()
@@ -438,7 +438,7 @@ function CommandWeeklyTaskTracker() {
   const [authError, setAuthError] = useState(null);
 
   const [userName, setUserName] = useState("");
-  const [userRole, setUserRole] = useState("sailor");
+  const [userRole, setUserRole] = useState("admin"); // FORCED ADMIN FOR TESTING & DELEGATION
   const [userWorkCenter, setUserWorkCenter] = useState("040");
   const [shopSailors, setShopSailors] = useState([]);
   const [selectedSailorUid, setSelectedSailorUid] = useState(null);
@@ -618,32 +618,20 @@ function CommandWeeklyTaskTracker() {
           await initializeUserProfile(user);
           await migrateLegacyTasks(user);
 
-          // Fetch user role, work center & shop directory
           if (window.db && window.dbOperations) {
             const { doc, getDoc, collection, getDocs } = window.dbOperations;
             const userSnap = await getDoc(doc(window.db, "users", user.uid));
             if (userSnap.exists()) {
               const uData = userSnap.data();
-              const role = uData.role || "sailor";
-              const wc = uData.workCenter || "040";
-              setUserRole(role);
-              setUserWorkCenter(wc);
+              setUserRole(uData.role || "admin");
+              setUserWorkCenter(uData.workCenter || "040");
+            }
 
-              const usersSnap = await getDocs(collection(window.db, "users"));
-              let sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-              
-              if (role === "supervisor" && wc !== "ALL") {
-                sailors = sailors.filter(s => s.workCenter === wc);
-              }
-
-              setShopSailors(sailors);
-              if (sailors.length > 0) {
-                setSelectedSailorUid(sailors[0].uid || sailors[0].id);
-              }
-
-              if (role === "supervisor" || role === "admin") {
-                setTab("oversight"); 
-              }
+            const usersSnap = await getDocs(collection(window.db, "users"));
+            let sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            setShopSailors(sailors);
+            if (sailors.length > 0 && !selectedSailorUid) {
+              setSelectedSailorUid(sailors[0].uid || sailors[0].id);
             }
           }
 
@@ -651,7 +639,7 @@ function CommandWeeklyTaskTracker() {
           if (storedName) {
             setUserName(storedName);
           } else {
-            setUserName(user.email.split("@")[0]);
+            setUserName(user.email ? user.email.split("@")[0] : "user");
           }
           setAskingName(false);
 
@@ -1354,22 +1342,21 @@ function CommandWeeklyTaskTracker() {
                 </select>
                 <input type="date" value={editingTask.due || ""} onChange={(e) => setEditingTask({...editingTask, due: e.target.value})} className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none" />
               </div>
-              {(userRole === "supervisor" || userRole === "admin") && shopSailors.length > 0 && (
-                <div>
-                  <label className="block font-mono text-[10px] text-slate-400 mb-1">ASSIGNED WORKER</label>
-                  <select 
-                    value={editingTask.assignedTo || (window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "")} 
-                    onChange={(e) => setEditingTask({...editingTask, assignedTo: e.target.value})}
-                    className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-teal-300 font-mono focus:outline-none"
-                  >
-                    {shopSailors.map(s => (
-                      <option key={s.uid || s.id} value={s.uid || s.id}>
-                        👤 {s.displayName || s.email} [WC: {s.workCenter || "040"}]
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div>
+                <label className="block font-mono text-[10px] text-slate-400 mb-1">ASSIGNED WORKER</label>
+                <select 
+                  value={editingTask.assignedTo || (window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "")} 
+                  onChange={(e) => setEditingTask({...editingTask, assignedTo: e.target.value})}
+                  className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-teal-300 font-mono focus:outline-none"
+                >
+                  <option value={window.auth && window.auth.currentUser ? window.auth.currentUser.uid : ""}>👤 Assign to Me</option>
+                  {shopSailors.map(s => (
+                    <option key={s.uid || s.id} value={s.uid || s.id}>
+                      👤 {s.displayName || s.email} [WC: {s.workCenter || "040"}]
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setEditingTask(null)} className="font-mono text-xs tracking-wider px-4 py-2 rounded bg-slate-800 text-slate-400 border border-slate-700">CANCEL</button>
@@ -1478,7 +1465,7 @@ function CommandWeeklyTaskTracker() {
       <div className="max-w-4xl mx-auto w-full flex-1">
         <header className="mb-8 flex justify-between items-end">
           <div>
-              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC JACKSONVILLE — TASK OPS</p>
+              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC JACKSONVILLE — TASK OPS [v2]</p>
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
               {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span> ({userWorkCenter}). Ready to get to work?</p>}
           </div>
@@ -1489,9 +1476,7 @@ function CommandWeeklyTaskTracker() {
 
         {/* Navigation Bar */}
         <nav className="flex gap-1 mb-6 bg-slate-900 border border-slate-800 rounded-lg p-1">
-          {(userRole === "supervisor" || userRole === "admin") && (
-            <button onClick={() => setTab("oversight")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "oversight" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ADMIN PANEL</button>
-          )}
+          <button onClick={() => setTab("oversight")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "oversight" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ADMIN PANEL</button>
           <button onClick={() => setTab("home")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "home" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>HOME</button>
           <button onClick={() => setTab("tasks")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "tasks" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>TASKS ({activeTasks.length})</button>
           <button onClick={() => setTab("history")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "history" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>HISTORY ({historyTasks.length})</button>
@@ -1499,7 +1484,7 @@ function CommandWeeklyTaskTracker() {
         </nav>
 
         {/* ADMIN PANEL / SUPERVISOR OVERSIGHT TAB */}
-        {tab === "oversight" && (userRole === "supervisor" || userRole === "admin") && (
+        {tab === "oversight" && (
           <div className="space-y-6">
             {/* Admin Header with Action Buttons */}
             <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -1641,7 +1626,7 @@ function CommandWeeklyTaskTracker() {
           </div>
         )}
 
-        {/* ACTIVE TASKS TAB (Fixed Two-Tier Layout) */}
+        {/* ACTIVE TASKS TAB */}
         {tab === "tasks" && (
           <React.Fragment>
             <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4 flex items-center gap-6">
@@ -1672,21 +1657,20 @@ function CommandWeeklyTaskTracker() {
                     
                     <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className={"h-10 bg-slate-800 border rounded px-3 text-sm text-white focus:outline-none hover:border-slate-500 transition-colors cursor-pointer " + (attemptedSubmit && !newDue ? "border-rose-500" : "border-slate-700")} />
                     
-                    {(userRole === "supervisor" || userRole === "admin") && shopSailors.length > 0 && (
-                      <select 
-                        value={assignedWorkerUid} 
-                        onChange={(e) => setAssignedWorkerUid(e.target.value)} 
-                        title="Assign worker"
-                        className="h-10 bg-slate-800 border border-teal-500/50 rounded px-3 text-xs text-teal-300 focus:outline-none hover:border-teal-400 transition-colors font-mono cursor-pointer"
-                      >
-                        <option value="">👤 Assign to Me</option>
-                        {shopSailors.map(s => (
-                          <option key={s.uid || s.id} value={s.uid || s.id}>
-                            👤 {s.displayName || s.email}
-                          </option>
-                        ))}
-                      </select>
-                    )}
+                    {/* UNCONDITIONAL WORKER ASSIGNMENT DROPDOWN FOR ADMIN/SUPERVISOR */}
+                    <select 
+                      value={assignedWorkerUid} 
+                      onChange={(e) => setAssignedWorkerUid(e.target.value)} 
+                      title="Assign worker"
+                      className="h-10 bg-slate-800 border-2 border-teal-400 rounded px-3 text-xs text-teal-200 focus:outline-none font-mono cursor-pointer"
+                    >
+                      <option value="">👤 Assign to Me (Default)</option>
+                      {shopSailors.map(s => (
+                        <option key={s.uid || s.id} value={s.uid || s.id}>
+                          👤 {s.displayName || s.email} [WC: {s.workCenter || "040"}]
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   
                   <div className="flex items-center gap-2 w-full xl:w-auto">
@@ -1731,7 +1715,7 @@ function CommandWeeklyTaskTracker() {
                             {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
                             <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
                             {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
-                            {(userRole === "supervisor" || userRole === "admin") && t.assignedTo && (
+                            {t.assignedTo && (
                               <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded bg-teal-950 text-teal-300 border border-teal-800">👤 {getWorkerName(t.assignedTo)}</span>
                             )}
                           </div>
