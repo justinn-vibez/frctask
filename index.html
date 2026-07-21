@@ -16,7 +16,7 @@
   <!-- Firebase Module Script -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
     import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
     const firebaseConfig = {
@@ -34,7 +34,7 @@
 
     window.db = db;
     window.auth = auth;
-    window.dbOperations = { collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc };
+    window.dbOperations = { collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc, getDoc };
     window.authOperations = { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged };
   </script>
 
@@ -422,10 +422,13 @@ function CommandWeeklyTaskTracker() {
     return () => clearInterval(timer);
   }, []);
 
+  // Cloud sync for tasks & labels via onAuthStateChanged
   useEffect(() => {
+    let unsubscribeTasks = null;
+
     if (window.auth && window.authOperations) {
       const { onAuthStateChanged } = window.authOperations;
-      const unsubscribeAuth = onAuthStateChanged(window.auth, (user) => {
+      const unsubscribeAuth = onAuthStateChanged(window.auth, async (user) => {
         if (user) {
           const storedName = lsGet(USER_NAME_KEY);
           if (storedName) {
@@ -434,40 +437,64 @@ function CommandWeeklyTaskTracker() {
             setUserName(user.email.split("@")[0]);
           }
           setAskingName(false);
+
+          // Load user labels from Firestore if available
+          if (window.db && window.dbOperations) {
+            const { doc, getDoc } = window.dbOperations;
+            try {
+                const labelDocSnap = await getDoc(doc(window.db, "users", user.uid, "config", "labels"));
+                if (labelDocSnap.exists() && labelDocSnap.data().list) {
+                  setLabels(labelDocSnap.data().list);
+                  lsSet(LABELS_KEY, labelDocSnap.data().list);
+                  if (labelDocSnap.data().list.length > 0 && !newLabel) {
+                    setNewLabel(labelDocSnap.data().list[0].name);
+                  }
+              } else {
+                  const storedLabels = lsGet(LABELS_KEY);
+                  const activeLabels = Array.isArray(storedLabels) ? storedLabels : [];
+                  setLabels(activeLabels);
+                  if (activeLabels.length > 0 && !newLabel) setNewLabel(activeLabels[0].name);
+              }
+          } catch (e) {
+              console.error("Error loading labels:", e);
+          }
+
+          // Subscribe to user-specific Firestore tasks collection in real-time
+          const { collection, onSnapshot } = window.dbOperations;
+          if (unsubscribeTasks) unsubscribeTasks();
+          unsubscribeTasks = onSnapshot(collection(window.db, "users", user.uid, "tasks"), (snapshot) => {
+            const cloudTasks = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+            setTasks(cloudTasks);
+            lsSet(TASKS_KEY, cloudTasks);
+          }, (error) => {
+            console.error("Firestore task sync error:", error);
+          });
+        }
         } else {
           setUserName("");
           setAskingName(true);
-        }
-        setLoaded(true);
-      }, (error) => {
-        console.error("Auth state error:", error);
-        setLoaded(true);
-      });
-      return () => unsubscribeAuth();
-    } else {
+          setTasks([]);
+        if (unsubscribeTasks) unsubscribeTasks();
+      }
       setLoaded(true);
-    }
-
+    }, (error) => {
+      console.error("Auth state error:", error);
+      setLoaded(true);
+    });
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeTasks) unsubscribeTasks();
+    };
+  } else {
+    setLoaded(true);
     const storedLabels = lsGet(LABELS_KEY);
     const activeLabels = Array.isArray(storedLabels) ? storedLabels : [];
     setLabels(activeLabels);
     if (activeLabels.length > 0) setNewLabel(activeLabels[0].name);
 
-    if (window.db && window.dbOperations) {
-      const { collection, onSnapshot } = window.dbOperations;
-      const unsubscribeTasks = onSnapshot(collection(window.db, "tasks"), (snapshot) => {
-        const cloudTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        if (cloudTasks.length > 0) {
-          setTasks(cloudTasks);
-        }
-      }, (error) => {
-        console.error("Firestore sync error:", error);
-      });
-      return () => unsubscribeTasks();
-    } else {
-      const storedTasks = lsGet(TASKS_KEY);
-      if (Array.isArray(storedTasks)) setTasks(storedTasks);
-    }
+    const storedTasks = lsGet(TASKS_KEY);
+    if (Array.isArray(storedTasks)) setTasks(storedTasks);
+  }
   }, []);
 
   const saveUserName = () => {
@@ -479,7 +506,7 @@ function CommandWeeklyTaskTracker() {
     
     if (!lsGet(TOUR_KEY)) {
         setShowTour(true);
-    }
+      }
   };
 
   const completeTour = () => {
@@ -487,16 +514,25 @@ function CommandWeeklyTaskTracker() {
       setShowTour(false);
   }
 
+  const saveLabelsToCloud = (updatedLabels) => {
+    if (window.db && window.dbOperations && window.auth && window.auth.currentUser) {
+      const { doc, setDoc } = window.dbOperations;
+      const uid = window.auth.currentUser.uid;
+      setDoc(doc(window.db, "users", uid, "config", "labels"), { list: updatedLabels }).catch(e => console.error("Error saving labels:", e));
+    }
+  };
+
   const commit = useCallback((updater) => {
     setTasks((prev) => { 
       const next = typeof updater === "function" ? updater(prev) : updater; 
       lsSet(TASKS_KEY, next); 
       
-      if (window.db && window.dbOperations) {
+      if (window.db && window.dbOperations && window.auth && window.auth.currentUser) {
         const { doc, setDoc } = window.dbOperations;
+        const uid = window.auth.currentUser.uid;
         next.forEach(async (t) => {
           try {
-            await setDoc(doc(window.db, "tasks", String(t.id)), t);
+            await setDoc(doc(window.db, "users", uid, "tasks", String(t.id)), t);
           } catch (e) {
             console.error("Error saving task to cloud:", e);
           }
@@ -539,7 +575,14 @@ function CommandWeeklyTaskTracker() {
   const executeConfirmAction = () => {
     if (!confirmAction) return;
     const { type, id } = confirmAction;
-    if (type === 'delete') commit((prev) => prev.filter((t) => t.id !== id));
+    if (type === 'delete') {
+      if (window.db && window.dbOperations && window.auth && window.auth.currentUser) {
+        const { doc, deleteDoc } = window.dbOperations;
+        const uid = window.auth.currentUser.uid;
+        deleteDoc(doc(window.db, "users", uid, "tasks", String(id))).catch(e => console.error("Error deleting from cloud:", e));
+      }
+      commit((prev) => prev.filter((t) => t.id !== id));
+    }
     else if (type === 'finish' || type === 'complete') {
         const completedTime = new Date().toISOString();
         commit((prev) => prev.map((t) => t.id !== id ? t : { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null, done: true, completedAt: completedTime }));
@@ -605,6 +648,7 @@ function CommandWeeklyTaskTracker() {
       setLabels(prev => {
           const next = prev.map(l => l.name === oldName ? { name: trimmed, color: newColor } : l);
           lsSet(LABELS_KEY, next);
+          saveLabelsToCloud(next);
           if (newLabel === oldName) setNewLabel(trimmed);
           return next;
       });
@@ -614,6 +658,7 @@ function CommandWeeklyTaskTracker() {
       setLabels(prev => {
           const next = prev.filter(l => l.name !== nameToDelete);
           lsSet(LABELS_KEY, next);
+          saveLabelsToCloud(next);
           if (newLabel === nameToDelete) setNewLabel(next.length > 0 ? next[0].name : "");
           return next;
       });
@@ -624,6 +669,7 @@ function CommandWeeklyTaskTracker() {
       if (prev.some((l) => l.name.toLowerCase() === newLabelObj.name.toLowerCase())) return prev;
       const next = [...prev, newLabelObj];
       lsSet(LABELS_KEY, next);
+      saveLabelsToCloud(next);
       if(!newLabel) setNewLabel(newLabelObj.name);
       return next;
     });
@@ -847,7 +893,7 @@ function CommandWeeklyTaskTracker() {
             </ModalOverlay>
         );
     }
-    
+     
     if (confirmAction) {
       let title = "Confirm Action", msg = "Are you sure?", btn = "YES", color = ACCENT.rose;
       if (confirmAction.type === 'delete') { title = "Delete Task"; msg = "This task will be permanently removed."; }
@@ -856,7 +902,7 @@ function CommandWeeklyTaskTracker() {
       if (confirmAction.type === 'reset') { title = "NUCLEAR RESET"; msg = "Are you absolutely sure? This will wipe all tasks, history, custom labels, and analytics permanently."; btn = "NUKE IT"; }
       return <ConfirmModal title={title} message={msg} onConfirm={executeConfirmAction} onCancel={() => setConfirmAction(null)} confirmText={btn} confirmColor={color} />;
     }
-    
+     
     if (managingLabels) {
        return (
          <ModalOverlay>
@@ -970,7 +1016,7 @@ function CommandWeeklyTaskTracker() {
             </div>
             <button onClick={() => setTvMode(false)} className="font-mono text-sm tracking-widest px-6 py-3 rounded border border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800">EXIT DISPLAY MODE</button>
           </header>
-          
+           
           <div className="flex-1 flex gap-10 min-h-0 overflow-hidden">
              <div className="w-1/3 flex flex-col items-center justify-center bg-slate-900 border border-slate-800 rounded-3xl p-8 shrink-0">
                  <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} size={420} stroke={28} />
@@ -1051,7 +1097,7 @@ function CommandWeeklyTaskTracker() {
               <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} size={210} stroke={16} />
               <h2 className="font-mono text-base tracking-widest text-slate-300 mt-6 mb-2">ACTIVE WEEK PROGRESS: <span className="text-white font-bold">{pct}% COMPLETED</span></h2>
               <p className="text-sm text-slate-500 mb-8 max-w-md">{pct === 100 && weekTotal > 0 ? <span className="font-mono tracking-widest" style={{ color: ACCENT.teal }}>✓ ALL TASKS SECURED FOR THE WEEK.</span> : `Knock out ${weekTotal - weekCompleted} more tasks to close out your weekly quota.`}</p>
-              
+               
               <div className="flex flex-wrap justify-center gap-4">
                 <button onClick={() => setTab("tasks")} className="font-mono text-xs font-bold tracking-widest px-6 py-3 rounded transition-transform active:scale-95" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>VIEW ACTIVE TASKS ➔</button>
                 <button onClick={() => setTab("analytics")} className="font-mono text-xs font-bold tracking-widest px-6 py-3 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">EXPLORE ANALYTICS</button>
