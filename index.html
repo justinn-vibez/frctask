@@ -64,11 +64,11 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList,
 } = Recharts;
 
-const TASKS_KEY = "weekly_tracker_tasks_b14";
-const LABELS_KEY = "weekly_tracker_labels_b14";
-const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b14";
-const USER_NAME_KEY = "weekly_tracker_username_b14";
-const TOUR_KEY = "weekly_tracker_tour_b14";
+const TASKS_KEY = "weekly_tracker_tasks_b15";
+const LABELS_KEY = "weekly_tracker_labels_b15";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b15";
+const USER_NAME_KEY = "weekly_tracker_username_b15";
+const TOUR_KEY = "weekly_tracker_tour_b15";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -412,6 +412,17 @@ const initializeUserProfile = async (user, officialName = "", workCenter = "040"
   }
 };
 
+const updateTaskInDb = async (taskObj) => {
+  if (window.db && window.dbOperations) {
+    const { doc, setDoc } = window.dbOperations;
+    try { 
+      await setDoc(doc(window.db, "tasks", String(taskObj.id)), taskObj); 
+    } catch(e) {
+      console.error("Database update error:", e);
+    }
+  }
+};
+
 function CommandWeeklyTaskTracker() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -423,14 +434,17 @@ function CommandWeeklyTaskTracker() {
   const [userWorkCenter, setUserWorkCenter] = useState("040");
   const [shopSailors, setShopSailors] = useState([]);
   const [selectedSailorUid, setSelectedSailorUid] = useState(null);
+  
+  // Track tasks separately depending on view
+  const [tasks, setTasks] = useState([]);
   const [sailorTasks, setSailorTasks] = useState([]);
   const [assignedWorkerUid, setAssignedWorkerUid] = useState("");
 
-  // Work Centers State
   const [workCenters, setWorkCenters] = useState(() => {
     const stored = lsGet(WORK_CENTERS_KEY);
     return Array.isArray(stored) ? stored : ["040", "110", "120", "210", "310", "510", "600"];
   });
+  
   const [selectedWcFilter, setSelectedWcFilter] = useState("ALL");
   const [showWcManager, setShowWcManager] = useState(false);
   const [showUserManager, setShowUserManager] = useState(false);
@@ -438,7 +452,6 @@ function CommandWeeklyTaskTracker() {
   const [draftNewName, setDraftNewName] = useState("");
   const [newWcDraft, setNewWcDraft] = useState("");
 
-  // OOMA Account Provisioning Modal State
   const [showProvisionModal, setShowProvisionModal] = useState(false);
   const [newProvUser, setNewProvUser] = useState("");
   const [newProvPass, setNewProvPass] = useState("");
@@ -576,8 +589,6 @@ function CommandWeeklyTaskTracker() {
   };
 
   const [showTour, setShowTour] = useState(false);
-
-  const [tasks, setTasks] = useState([]);
   const [labels, setLabels] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
@@ -606,7 +617,6 @@ function CommandWeeklyTaskTracker() {
   const [sortMode, setSortMode] = useState("default");
   const [viewMode, setViewMode] = useState("list");
 
-  // System clock synced with app time (24-hour format with ticking colon)
   const [systemClock, setSystemClock] = useState(new Date());
   const [tickToggle, setTickToggle] = useState(true);
 
@@ -620,35 +630,43 @@ function CommandWeeklyTaskTracker() {
     return () => clearInterval(timer);
   }, []);
 
-  // Centralized Root Tasks Collection Listener (Fixes Task Delegation Bug)
+  // Main Authentication and Root Snapshot Listener
   useEffect(() => {
     let unsubscribeAuth = null;
     let unsubscribeTasks = null;
 
     if (window.auth && window.authOperations && window.db && window.dbOperations) {
       const { onAuthStateChanged } = window.authOperations;
-      const { collection, onSnapshot, doc, getDoc } = window.dbOperations;
+      // VITAL FIX: include getDocs in the destructure below to stop infinite loading screen
+      const { collection, onSnapshot, doc, getDoc, getDocs } = window.dbOperations; 
 
       unsubscribeAuth = onAuthStateChanged(window.auth, async (user) => {
         if (user) {
           await initializeUserProfile(user);
           
-          const userSnap = await getDoc(doc(window.db, "users", user.uid));
-          if (userSnap.exists()) {
-            const uData = userSnap.data();
-            setUserRole(uData.role || "admin");
-            setUserWorkCenter(uData.workCenter || "040");
-            if (uData.displayName) {
-              setUserName(uData.displayName);
-              lsSet(USER_NAME_KEY, uData.displayName);
+          try {
+            const userSnap = await getDoc(doc(window.db, "users", user.uid));
+            if (userSnap.exists()) {
+              const uData = userSnap.data();
+              setUserRole(uData.role || "admin");
+              setUserWorkCenter(uData.workCenter || "040");
+              if (uData.displayName) {
+                setUserName(uData.displayName);
+                lsSet(USER_NAME_KEY, uData.displayName);
+              }
             }
-          }
 
-          const usersSnap = await getDocs(collection(window.db, "users"));
-          let sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-          setShopSailors(sailors);
-          if (sailors.length > 0 && !selectedSailorUid) {
-            setSelectedSailorUid(sailors[0].uid || sailors[0].id);
+            // Fetch directory for admin dropdowns
+            const usersSnap = await getDocs(collection(window.db, "users"));
+            let sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            setShopSailors(sailors);
+            
+            // Set initial selected sailor for oversight safely without looping
+            if (sailors.length > 0) {
+              setSelectedSailorUid(prev => prev || (sailors[0].uid || sailors[0].id));
+            }
+          } catch(e) {
+            console.error("Error during initial fetch:", e);
           }
 
           const storedName = lsGet(USER_NAME_KEY);
@@ -659,22 +677,33 @@ function CommandWeeklyTaskTracker() {
           }
           setAskingName(false);
 
-          // Listen to centralized root "tasks" collection where assignedTo matches users
+          // Get Labels
+          try {
+            const labelDocSnap = await getDoc(doc(window.db, "users", user.uid, "config", "labels"));
+            if (labelDocSnap.exists() && labelDocSnap.data().list) {
+              setLabels(labelDocSnap.data().list);
+              lsSet(LABELS_KEY, labelDocSnap.data().list);
+              if (labelDocSnap.data().list.length > 0 && !newLabel) setNewLabel(labelDocSnap.data().list[0].name);
+            } else {
+              const storedLabels = lsGet(LABELS_KEY);
+              const activeLabels = Array.isArray(storedLabels) ? storedLabels : [];
+              setLabels(activeLabels);
+              if (activeLabels.length > 0 && !newLabel) setNewLabel(activeLabels[0].name);
+            }
+          } catch (e) {
+            console.error("Error loading labels:", e);
+          }
+
+          // Single Master Task Listener for the active user
           if (unsubscribeTasks) unsubscribeTasks();
           unsubscribeTasks = onSnapshot(collection(window.db, "tasks"), (snapshot) => {
             const allTasks = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             const myUid = user.uid;
 
-            // Tasks assigned to me (or legacy tasks without assignedTo created by me)
+            // Load tasks assigned strictly to logged in user
             const myTasks = allTasks.filter(t => t.assignedTo === myUid || (!t.assignedTo));
             setTasks(myTasks);
             lsSet(TASKS_KEY, myTasks);
-
-            // If inspecting a sailor in oversight mode
-            if (selectedSailorUid) {
-              const targeted = allTasks.filter(t => t.assignedTo === selectedSailorUid);
-              setSailorTasks(targeted);
-            }
           }, (err) => {
             console.error("Tasks snapshot error:", err);
           });
@@ -687,7 +716,7 @@ function CommandWeeklyTaskTracker() {
           setTasks([]);
           if (unsubscribeTasks) unsubscribeTasks();
         }
-        setLoaded(true);
+        setLoaded(true); // Guarantees we exit the "LOADING..." screen
       });
 
       return () => {
@@ -696,38 +725,45 @@ function CommandWeeklyTaskTracker() {
       };
     } else {
       setLoaded(true);
+      const storedLabels = lsGet(LABELS_KEY);
+      const activeLabels = Array.isArray(storedLabels) ? storedLabels : [];
+      setLabels(activeLabels);
+      if (activeLabels.length > 0) setNewLabel(activeLabels[0].name);
+
       const storedTasks = lsGet(TASKS_KEY);
       if (Array.isArray(storedTasks)) setTasks(storedTasks);
     }
-  }, [selectedSailorUid]);
+  }, []);
 
+  // Filtered shop sailors based on selected Work Center filter
   const filteredShopSailors = useMemo(() => {
     if (selectedWcFilter === "ALL") return shopSailors;
     return shopSailors.filter(s => (s.workCenter || "040") === selectedWcFilter);
   }, [shopSailors, selectedWcFilter]);
 
-  const commitTasks = useCallback((updater) => {
-    setTasks((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      lsSet(TASKS_KEY, next);
-      
-      if (window.db && window.dbOperations && window.auth && window.auth.currentUser) {
-        const { doc, setDoc } = window.dbOperations;
-        const currentUid = window.auth.currentUser.uid;
-        next.forEach(async (t) => {
-          try {
-            await setDoc(doc(window.db, "tasks", String(t.id)), {
-              ...t,
-              assignedTo: t.assignedTo || currentUid
-            });
-          } catch (e) {
-            console.error("Error committing task to Firestore:", e);
-          }
-        });
-      }
-      return next;
+  // Secondary Listener: Exclusively for Oversight Dashboard (Fixes delegation bug)
+  useEffect(() => {
+    if (tab !== "oversight" || !selectedSailorUid || !window.db || !window.dbOperations) return;
+    const { collection, onSnapshot } = window.dbOperations;
+    const unsub = onSnapshot(collection(window.db, "tasks"), (snap) => {
+      const allTasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setSailorTasks(allTasks.filter(t => t.assignedTo === selectedSailorUid));
     });
-  }, []);
+    return () => unsub();
+  }, [tab, selectedSailorUid]);
+
+  const completeTour = () => {
+      lsSet(TOUR_KEY, true);
+      setShowTour(false);
+  }
+
+  const saveLabelsToCloud = (updatedLabels) => {
+    if (window.db && window.dbOperations && window.auth && window.auth.currentUser) {
+      const { doc, setDoc } = window.dbOperations;
+      const uid = window.auth.currentUser.uid;
+      setDoc(doc(window.db, "users", uid, "config", "labels"), { list: updatedLabels }).catch(e => console.error("Error saving labels:", e));
+    }
+  };
 
   const weekTasks = tasks.filter(inActiveWeek);
   const weekTotal = weekTasks.length, weekCompleted = weekTasks.filter((t) => t.done).length;
@@ -761,23 +797,26 @@ function CommandWeeklyTaskTracker() {
         timeMs: 0, runningSince: null, assignedTo: targetUid
     };
     
-    if (window.db && window.dbOperations) {
-      const { doc, setDoc } = window.dbOperations;
-      try {
-        await setDoc(doc(window.db, "tasks", String(newTask.id)), newTask);
-      } catch (e) {
-        console.error("Error writing task:", e);
-      }
-    } else {
-      commitTasks((prev) => [...prev, newTask]);
+    updateTaskInDb(newTask); // Saves to Root
+
+    if (targetUid === currentUid) {
+      setTasks(prev => { const next = [...prev, newTask]; lsSet(TASKS_KEY, next); return next; });
     }
 
     setNewText(""); setNewDue(""); setNewPriority("medium"); setNewNote(""); setAssignedWorkerUid(""); setAttemptedSubmit(false);
   };
 
   const toggleTimer = (id) => {
-    const nextTasks = tasks.map((t) => t.id !== id ? t : (t.runningSince ? { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null } : { ...t, runningSince: new Date().toISOString() }));
-    commitTasks(nextTasks);
+    setTasks(prev => {
+       const updated = prev.map(t => {
+          if (t.id !== id) return t;
+          const newT = t.runningSince ? { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null } : { ...t, runningSince: new Date().toISOString() };
+          updateTaskInDb(newT);
+          return newT;
+       });
+       lsSet(TASKS_KEY, updated);
+       return updated;
+    });
   };
   
   const triggerAction = (type, id) => setConfirmAction({ type, id });
@@ -788,14 +827,26 @@ function CommandWeeklyTaskTracker() {
     if (type === 'delete') {
       if (window.db && window.dbOperations) {
         const { doc, deleteDoc } = window.dbOperations;
-        await deleteDoc(doc(window.db, "tasks", String(id))).catch(e => console.error("Error deleting task:", e));
+        deleteDoc(doc(window.db, "tasks", String(id))).catch(e => console.error("Error deleting task:", e));
       }
-      commitTasks((prev) => prev.filter((t) => t.id !== id));
+      setTasks(prev => {
+        const next = prev.filter(t => t.id !== id);
+        lsSet(TASKS_KEY, next);
+        return next;
+      });
     }
     else if (type === 'finish' || type === 'complete') {
         const completedTime = new Date().toISOString();
-        const updated = tasks.map((t) => t.id !== id ? t : { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null, done: true, completedAt: completedTime });
-        commitTasks(updated);
+        setTasks(prev => {
+            const updated = prev.map((t) => {
+                if (t.id !== id) return t;
+                const newT = { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null, done: true, completedAt: completedTime };
+                updateTaskInDb(newT);
+                return newT;
+            });
+            lsSet(TASKS_KEY, updated);
+            return updated;
+        });
     }
     else if (type === 'signout') {
       if (window.auth) window.auth.signOut();
@@ -808,18 +859,31 @@ function CommandWeeklyTaskTracker() {
   };
 
   const uncheckTask = (id) => {
-    const updated = tasks.map((t) => t.id === id ? { ...t, done: false, completedAt: null } : t);
-    commitTasks(updated);
+    setTasks(prev => {
+        const updated = prev.map(t => {
+            if (t.id !== id) return t;
+            const newT = { ...t, done: false, completedAt: null };
+            updateTaskInDb(newT);
+            return newT;
+        });
+        lsSet(TASKS_KEY, updated);
+        return updated;
+    });
   };
 
   const moveToNextWeek = (id) => {
-    const updated = tasks.map((t) => {
-      if (t.id !== id) return t;
-      const base = t.due ? parseDue(t.due) : new Date();
-      base.setDate(base.getDate() + 7);
-      return { ...t, due: fmtDue(base) };
+    setTasks(prev => {
+        const updated = prev.map(t => {
+            if (t.id !== id) return t;
+            const base = t.due ? parseDue(t.due) : new Date();
+            base.setDate(base.getDate() + 7);
+            const newT = { ...t, due: fmtDue(base) };
+            updateTaskInDb(newT);
+            return newT;
+        });
+        lsSet(TASKS_KEY, updated);
+        return updated;
     });
-    commitTasks(updated);
   };
 
   const saveEdit = async () => {
@@ -829,16 +893,19 @@ function CommandWeeklyTaskTracker() {
 
     const updatedTask = { ...editingTask, text: editingTask.text.trim(), assignedTo: newAssignedTo };
     
-    if (window.db && window.dbOperations) {
-      const { doc, setDoc } = window.dbOperations;
-      try {
-        await setDoc(doc(window.db, "tasks", String(updatedTask.id)), updatedTask);
-      } catch (e) {
-        console.error("Error updating task assignment:", e);
-      }
-    }
+    updateTaskInDb(updatedTask);
 
-    commitTasks((prev) => prev.map((t) => t.id === updatedTask.id ? updatedTask : t ));
+    setTasks(prev => {
+        // If reassigned to someone else, hide it from my local list
+        if (newAssignedTo !== currentUid) {
+            const removed = prev.filter(t => t.id !== updatedTask.id);
+            lsSet(TASKS_KEY, removed);
+            return removed;
+        }
+        const updated = prev.map(t => t.id === updatedTask.id ? updatedTask : t);
+        lsSet(TASKS_KEY, updated);
+        return updated;
+    });
     setEditingTask(null);
   };
 
@@ -887,7 +954,11 @@ function CommandWeeklyTaskTracker() {
           if (newLabel === oldName) setNewLabel(trimmed);
           return next;
       });
-      commitTasks(prev => prev.map(t => t.label === oldName ? { ...t, label: trimmed } : t));
+      setTasks(prev => {
+          const updated = prev.map(t => t.label === oldName ? { ...t, label: trimmed } : t);
+          lsSet(TASKS_KEY, updated);
+          return updated;
+      });
   };
   const deleteLabel = (nameToDelete) => {
       setLabels(prev => {
@@ -897,7 +968,11 @@ function CommandWeeklyTaskTracker() {
           if (newLabel === nameToDelete) setNewLabel(next.length > 0 ? next[0].name : "");
           return next;
       });
-      commitTasks(prev => prev.map(t => t.label === nameToDelete ? { ...t, label: "" } : t));
+      setTasks(prev => {
+          const updated = prev.map(t => t.label === nameToDelete ? { ...t, label: "" } : t);
+          lsSet(TASKS_KEY, updated);
+          return updated;
+      });
   };
   const createLabel = (newLabelObj) => {
     setLabels((prev) => {
@@ -911,7 +986,16 @@ function CommandWeeklyTaskTracker() {
   };
   const saveTaskNote = (id, text) => {
     const trimmed = text.trim();
-    commitTasks((prev) => prev.map((t) => t.id === id ? { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString() } : null } : t ));
+    setTasks(prev => {
+       const updated = prev.map(t => {
+           if (t.id !== id) return t;
+           const newT = { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString() } : null };
+           updateTaskInDb(newT);
+           return newT;
+       });
+       lsSet(TASKS_KEY, updated);
+       return updated;
+    });
   };
 
   const analytics = useMemo(() => {
@@ -1115,7 +1199,6 @@ function CommandWeeklyTaskTracker() {
 
     if (showTour) return <GuidedTour onComplete={completeTour} />;
     
-    // Change Name Modal
     if (showChangeNameModal) {
       return (
         <ModalOverlay zIndex="z-[80]">
@@ -1144,7 +1227,6 @@ function CommandWeeklyTaskTracker() {
       );
     }
 
-    // Manage Users Modal
     if (showUserManager) {
       return (
         <ModalOverlay zIndex="z-[80]">
@@ -1192,7 +1274,6 @@ function CommandWeeklyTaskTracker() {
       );
     }
 
-    // Add New User Modal
     if (showProvisionModal) {
       return (
         <ModalOverlay zIndex="z-[80]">
@@ -1274,7 +1355,6 @@ function CommandWeeklyTaskTracker() {
       );
     }
 
-    // Work Center Code Manager Modal
     if (showWcManager) {
       return (
         <ModalOverlay zIndex="z-[80]">
@@ -1523,7 +1603,7 @@ function CommandWeeklyTaskTracker() {
       <div className="max-w-4xl mx-auto w-full flex-1">
         <header className="mb-8 flex justify-between items-end">
           <div>
-              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v3.4]</p>
+              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS</p>
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
               {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
           </div>
