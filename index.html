@@ -291,77 +291,47 @@ function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftColor, setDraftColor] = useState(LABEL_PALETTE[0]);
-  const containerRef = useRef(null);
 
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setCreating(false);
-      }
-    };
-    if (creating) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [creating]);
-
+  const handleSelect = (e) => {
+    if (e.target.value === "__new__") { 
+      setCreating(true); 
+      setDraftName(""); 
+      setDraftColor(LABEL_PALETTE[0]); 
+    } else {
+      onChange(e.target.value);
+    }
+  };
+  
   const confirmNew = () => {
     const name = draftName.trim();
     if (!name) { setCreating(false); return; }
     onCreateLabel({ name, color: draftColor });
     onChange(name);
-    setDraftName("");
     setCreating(false);
   };
 
-  const activeLabel = labels.find(l => l.name === value);
-
   if (creating) {
     return (
-      <div ref={containerRef} className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded px-2 py-1">
-        <input 
-          value={draftName} 
-          onChange={(e) => setDraftName(e.target.value)} 
-          onKeyDown={(e) => { if (e.key === "Enter") confirmNew(); if (e.key === "Escape") setCreating(false); }} 
-          autoFocus 
-          placeholder="New label name…" 
-          className="w-28 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-teal-400" 
-        />
-        <div className="flex gap-1">
-          {LABEL_PALETTE.slice(0, 4).map(c => (
-            <button 
-              key={c} 
-              type="button"
-              onClick={(e) => { e.preventDefault(); setDraftColor(c); }} 
-              className="w-3.5 h-3.5 rounded-full border transition-transform hover:scale-110" 
-              style={{ backgroundColor: c, borderColor: draftColor === c ? '#fff' : 'transparent' }} 
-            />
-          ))}
+      <div className="flex flex-col gap-2 bg-slate-800 p-2 rounded border border-slate-600">
+        <div className="flex gap-1.5">
+          <input value={draftName} onChange={(e) => setDraftName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") confirmNew(); if (e.key === "Escape") setCreating(false); }} autoFocus placeholder="Label name…" className="flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm text-white focus:outline-none" />
+          <button onClick={confirmNew} className="font-mono text-[10px] font-bold tracking-widest px-3 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>OK</button>
+          <button onClick={() => setCreating(false)} className="font-mono text-[10px] tracking-widest px-2 rounded bg-slate-700 text-slate-300">✕</button>
         </div>
-        <button type="button" onClick={confirmNew} className="font-mono text-[10px] font-bold px-2 py-1 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>OK</button>
-        <button type="button" onClick={() => setCreating(false)} className="text-slate-400 hover:text-white text-xs px-1">✕</button>
+        <div className="flex gap-1 justify-between mt-1">
+            {LABEL_PALETTE.map(c => <button key={c} onClick={() => setDraftColor(c)} className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110" style={{ backgroundColor: c, borderColor: draftColor === c ? '#fff' : 'transparent' }} />)}
+        </div>
       </div>
     );
   }
-
+  
+  const activeLabel = labels.find(l => l.name === value);
   return (
-    <div className="flex items-center gap-1.5" ref={containerRef}>
-      <select 
-        value={value || ""} 
-        onChange={(e) => onChange(e.target.value)} 
-        className={"bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-slate-500 " + (compact ? "py-1.5" : "py-1.5")} 
-        style={{ borderLeft: activeLabel ? `4px solid ${activeLabel.color}` : '' }}
-      >
-        {labels.length === 0 && <option value="" disabled>No labels yet</option>}
-        {labels.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
-      </select>
-      <button 
-        type="button"
-        onClick={() => { setCreating(true); setDraftName(""); setDraftColor(LABEL_PALETTE[0]); }}
-        title="Create new label"
-        className="bg-slate-800 border border-slate-700 hover:border-teal-400 text-teal-400 hover:bg-slate-700 rounded px-2.5 py-1.5 text-xs font-mono font-bold transition-colors flex items-center justify-center"
-      >
-        ＋
-      </button>
-    </div>
+    <select value={value || ""} onChange={handleSelect} className={"bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-slate-500 " + (compact ? "py-1.5" : "py-1.5")} style={{ borderLeft: activeLabel ? `4px solid ${activeLabel.color}` : '' }}>
+      {labels.length === 0 && <option value="" disabled>No labels yet</option>}
+      {labels.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
+      <option value="__new__">＋ Create new label…</option>
+    </select>
   );
 }
 
@@ -477,22 +447,22 @@ function CommandWeeklyTaskTracker() {
           if (window.db && window.dbOperations) {
             const { doc, getDoc } = window.dbOperations;
             try {
-                const labelDocSnap = await getDoc(doc(window.db, "users", user.uid, "config", "labels"));
-                if (labelDocSnap.exists() && labelDocSnap.data().list) {
-                  setLabels(labelDocSnap.data().list);
-                  lsSet(LABELS_KEY, labelDocSnap.data().list);
-                  if (labelDocSnap.data().list.length > 0 && !newLabel) {
-                    setNewLabel(labelDocSnap.data().list[0].name);
-                  }
+              const labelDocSnap = await getDoc(doc(window.db, "users", user.uid, "config", "labels"));
+              if (labelDocSnap.exists() && labelDocSnap.data().list) {
+                setLabels(labelDocSnap.data().list);
+                lsSet(LABELS_KEY, labelDocSnap.data().list);
+                if (labelDocSnap.data().list.length > 0 && !newLabel) {
+                  setNewLabel(labelDocSnap.data().list[0].name);
+                }
               } else {
-                  const storedLabels = lsGet(LABELS_KEY);
-                  const activeLabels = Array.isArray(storedLabels) ? storedLabels : [];
-                  setLabels(activeLabels);
-                  if (activeLabels.length > 0 && !newLabel) setNewLabel(activeLabels[0].name);
+                const storedLabels = lsGet(LABELS_KEY);
+                const activeLabels = Array.isArray(storedLabels) ? storedLabels : [];
+                setLabels(activeLabels);
+                if (activeLabels.length > 0 && !newLabel) setNewLabel(activeLabels[0].name);
               }
-          } catch (e) {
+            } catch (e) {
               console.error("Error loading labels:", e);
-          }
+            }
 
           // Subscribe to user-specific Firestore tasks collection in real-time
           const { collection, onSnapshot } = window.dbOperations;
@@ -504,32 +474,32 @@ function CommandWeeklyTaskTracker() {
           }, (error) => {
             console.error("Firestore task sync error:", error);
           });
-        }
+          }
         } else {
           setUserName("");
           setAskingName(true);
           setTasks([]);
+          if (unsubscribeTasks) unsubscribeTasks();
+        }
+        setLoaded(true);
+      }, (error) => {
+        console.error("Auth state error:", error);
+        setLoaded(true);
+      });
+      return () => {
+        unsubscribeAuth();
         if (unsubscribeTasks) unsubscribeTasks();
-      }
+      };
+    } else {
       setLoaded(true);
-    }, (error) => {
-      console.error("Auth state error:", error);
-      setLoaded(true);
-    });
-    return () => {
-      unsubscribeAuth();
-      if (unsubscribeTasks) unsubscribeTasks();
-    };
-  } else {
-    setLoaded(true);
-    const storedLabels = lsGet(LABELS_KEY);
-    const activeLabels = Array.isArray(storedLabels) ? storedLabels : [];
-    setLabels(activeLabels);
-    if (activeLabels.length > 0) setNewLabel(activeLabels[0].name);
+      const storedLabels = lsGet(LABELS_KEY);
+      const activeLabels = Array.isArray(storedLabels) ? storedLabels : [];
+      setLabels(activeLabels);
+      if (activeLabels.length > 0) setNewLabel(activeLabels[0].name);
 
-    const storedTasks = lsGet(TASKS_KEY);
-    if (Array.isArray(storedTasks)) setTasks(storedTasks);
-  }
+      const storedTasks = lsGet(TASKS_KEY);
+      if (Array.isArray(storedTasks)) setTasks(storedTasks);
+    }
   }, []);
 
   const saveUserName = () => {
@@ -541,7 +511,7 @@ function CommandWeeklyTaskTracker() {
     
     if (!lsGet(TOUR_KEY)) {
         setShowTour(true);
-      }
+    }
   };
 
   const completeTour = () => {
@@ -928,7 +898,7 @@ function CommandWeeklyTaskTracker() {
             </ModalOverlay>
         );
     }
-     
+    
     if (confirmAction) {
       let title = "Confirm Action", msg = "Are you sure?", btn = "YES", color = ACCENT.rose;
       if (confirmAction.type === 'delete') { title = "Delete Task"; msg = "This task will be permanently removed."; }
@@ -937,7 +907,7 @@ function CommandWeeklyTaskTracker() {
       if (confirmAction.type === 'reset') { title = "NUCLEAR RESET"; msg = "Are you absolutely sure? This will wipe all tasks, history, custom labels, and analytics permanently."; btn = "NUKE IT"; }
       return <ConfirmModal title={title} message={msg} onConfirm={executeConfirmAction} onCancel={() => setConfirmAction(null)} confirmText={btn} confirmColor={color} />;
     }
-     
+    
     if (managingLabels) {
        return (
          <ModalOverlay>
@@ -1051,7 +1021,7 @@ function CommandWeeklyTaskTracker() {
             </div>
             <button onClick={() => setTvMode(false)} className="font-mono text-sm tracking-widest px-6 py-3 rounded border border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800">EXIT DISPLAY MODE</button>
           </header>
-           
+          
           <div className="flex-1 flex gap-10 min-h-0 overflow-hidden">
              <div className="w-1/3 flex flex-col items-center justify-center bg-slate-900 border border-slate-800 rounded-3xl p-8 shrink-0">
                  <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} size={420} stroke={28} />
@@ -1132,7 +1102,7 @@ function CommandWeeklyTaskTracker() {
               <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} size={210} stroke={16} />
               <h2 className="font-mono text-base tracking-widest text-slate-300 mt-6 mb-2">ACTIVE WEEK PROGRESS: <span className="text-white font-bold">{pct}% COMPLETED</span></h2>
               <p className="text-sm text-slate-500 mb-8 max-w-md">{pct === 100 && weekTotal > 0 ? <span className="font-mono tracking-widest" style={{ color: ACCENT.teal }}>✓ ALL TASKS SECURED FOR THE WEEK.</span> : `Knock out ${weekTotal - weekCompleted} more tasks to close out your weekly quota.`}</p>
-               
+              
               <div className="flex flex-wrap justify-center gap-4">
                 <button onClick={() => setTab("tasks")} className="font-mono text-xs font-bold tracking-widest px-6 py-3 rounded transition-transform active:scale-95" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>VIEW ACTIVE TASKS ➔</button>
                 <button onClick={() => setTab("analytics")} className="font-mono text-xs font-bold tracking-widest px-6 py-3 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">EXPLORE ANALYTICS</button>
