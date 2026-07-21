@@ -432,6 +432,11 @@ function CommandWeeklyTaskTracker() {
   const [authError, setAuthError] = useState(null);
 
   const [userName, setUserName] = useState("");
+  const [userRole, setUserRole] = useState("sailor");
+  const [shopSailors, setShopSailors] = useState([]);
+  const [selectedSailorUid, setSelectedSailorUid] = useState(null);
+  const [sailorTasks, setSailorTasks] = useState([]);
+
   const [askingName, setAskingName] = useState(false);
   const [askingOfficialName, setAskingOfficialName] = useState(false);
   const [draftOfficialName, setDraftOfficialName] = useState("");
@@ -530,6 +535,25 @@ function CommandWeeklyTaskTracker() {
           await initializeUserProfile(user);
           await migrateLegacyTasks(user);
 
+          // Fetch user role & profile
+          if (window.db && window.dbOperations) {
+            const { doc, getDoc, collection, getDocs } = window.dbOperations;
+            const userSnap = await getDoc(doc(window.db, "users", user.uid));
+            if (userSnap.exists()) {
+              const role = userSnap.data().role || "sailor";
+              setUserRole(role);
+              if (role === "supervisor" || role === "admin") {
+                const usersSnap = await getDocs(collection(window.db, "users"));
+                const sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                setShopSailors(sailors);
+                if (sailors.length > 0) {
+                  setSelectedSailorUid(sailors[0].uid);
+                }
+                setTab("oversight"); // Default supervisors straight to oversight dashboard
+              }
+            }
+          }
+
           const storedName = lsGet(USER_NAME_KEY);
           if (storedName) {
             setUserName(storedName);
@@ -572,6 +596,7 @@ function CommandWeeklyTaskTracker() {
           }
         } else {
           setUserName("");
+          setUserRole("sailor");
           setAskingName(true);
           setTasks([]);
           if (unsubscribeTasks) unsubscribeTasks();
@@ -596,6 +621,17 @@ function CommandWeeklyTaskTracker() {
       if (Array.isArray(storedTasks)) setTasks(storedTasks);
     }
   }, []);
+
+  // Real-time subscription for selected sailor tasks in oversight mode
+  useEffect(() => {
+    if (tab !== "oversight" || !selectedSailorUid || !window.db || !window.dbOperations) return;
+    const { collection, onSnapshot } = window.dbOperations;
+    const unsub = onSnapshot(collection(window.db, "users", selectedSailorUid, "tasks"), (snap) => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setSailorTasks(list);
+    });
+    return () => unsub();
+  }, [tab, selectedSailorUid]);
 
   const completeTour = () => {
       lsSet(TOUR_KEY, true);
@@ -633,6 +669,13 @@ function CommandWeeklyTaskTracker() {
   const weekTasks = tasks.filter(inActiveWeek);
   const weekTotal = weekTasks.length, weekCompleted = weekTasks.filter((t) => t.done).length;
   const pct = weekTotal === 0 ? 0 : Math.round((weekCompleted / weekTotal) * 100);
+
+  // Oversight metrics for selected sailor
+  const oversightWeekTasks = sailorTasks.filter(inActiveWeek);
+  const oversightTotal = oversightWeekTasks.length;
+  const oversightCompleted = oversightWeekTasks.filter(t => t.done).length;
+  const oversightPct = oversightTotal === 0 ? 0 : Math.round((oversightCompleted / oversightTotal) * 100);
+  const selectedSailorObj = shopSailors.find(s => s.uid === selectedSailorUid);
 
   useEffect(() => {
     if (loaded && pct === 100 && prevPct.current < 100 && weekTotal > 0) {
@@ -1170,13 +1213,90 @@ function CommandWeeklyTaskTracker() {
           </div>
         </header>
 
-        {/* Separated Navigation Bar: Home, Active Tasks, History, Analytics */}
+        {/* Navigation Bar: Dynamic Tabs for Sailors vs Supervisors */}
         <nav className="flex gap-1 mb-6 bg-slate-900 border border-slate-800 rounded-lg p-1">
+          {(userRole === "supervisor" || userRole === "admin") && (
+            <button onClick={() => setTab("oversight")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "oversight" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>OVERSIGHT</button>
+          )}
           <button onClick={() => setTab("home")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "home" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>HOME</button>
           <button onClick={() => setTab("tasks")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "tasks" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>TASKS ({activeTasks.length})</button>
           <button onClick={() => setTab("history")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "history" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>HISTORY ({historyTasks.length})</button>
           <button onClick={() => setTab("analytics")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "analytics" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ANALYTICS</button>
         </nav>
+
+        {/* SUPERVISOR OVERSIGHT TAB */}
+        {tab === "oversight" && (userRole === "supervisor" || userRole === "admin") && (
+          <div className="space-y-6">
+            <section className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                <div>
+                  <h2 className="font-mono text-xs tracking-widest text-teal-400 mb-1">COMMAND OVERSIGHT DASHBOARD</h2>
+                  <p className="text-xl font-bold text-white">Work Center / Division Task Monitor</p>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <span className="font-mono text-[10px] text-slate-400 tracking-widest">SELECT SAILOR:</span>
+                  <select 
+                    value={selectedSailorUid || ""} 
+                    onChange={(e) => setSelectedSailorUid(e.target.value)} 
+                    className="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-white focus:outline-none font-mono"
+                  >
+                    {shopSailors.map((s) => (
+                      <option key={s.uid || s.id} value={s.uid || s.id}>
+                        {s.displayName || s.email} ({s.role.toUpperCase()})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {selectedSailorObj && (
+                <div className="flex flex-col md:flex-row items-center gap-6 bg-slate-950 border border-slate-800 rounded-lg p-6">
+                  <ProgressRing pct={oversightPct} completed={oversightCompleted} total={oversightTotal} size={130} stroke={12} />
+                  <div className="flex-1 text-center md:text-left">
+                    <p className="font-mono text-xs text-slate-500 tracking-widest mb-1">CURRENTLY VIEWING</p>
+                    <h3 className="text-2xl font-bold text-white mb-1">{selectedSailorObj.displayName || selectedSailorObj.email}</h3>
+                    <p className="font-mono text-xs text-teal-400 tracking-wider mb-3">ROLE: {selectedSailorObj.role.toUpperCase()} · EMAIL: {selectedSailorObj.email}</p>
+                    <p className="text-xs text-slate-400">{oversightTotal === 0 ? "No active tasks assigned for this week." : `${oversightCompleted} of ${oversightTotal} tasks completed (${oversightPct}%).`}</p>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="space-y-3">
+              <h3 className="font-mono text-xs tracking-widest text-slate-400 mb-2">ACTIVE ASSIGNED TASKS</h3>
+              {sailorTasks.filter(t => !t.done).length === 0 ? (
+                <div className="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center text-slate-500 font-mono text-sm tracking-widest">NO ACTIVE TASKS PENDING FOR THIS SAILOR.</div>
+              ) : (
+                sailorTasks.filter(t => !t.done).map((t) => {
+                  const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label), ms = elapsedMs(t, nowTs);
+                  return (
+                    <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-lg p-4" style={{ borderLeft: "4px solid " + pm.color }}>
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm sm:text-base text-white font-medium">{t.text}</p>
+                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                            {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
+                            <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a" }}>{pm.label}</span>
+                            {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
+                          </div>
+                          <div className="flex items-center gap-3 mt-3 font-mono text-xs text-slate-400">
+                            <span>⏱ Time Tracked: {fmtDuration(ms)}</span>
+                            {t.note && t.note.updatedAt && <span>· Last Update: {fmtStamp(t.note.updatedAt)}</span>}
+                          </div>
+                          {t.note && t.note.text && (
+                            <div className="mt-2 bg-slate-950 border border-slate-800 rounded p-2.5 text-xs text-slate-300 font-mono">
+                              <span className="text-teal-400 font-bold">NOTE: </span>{t.note.text}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </section>
+          </div>
+        )}
 
         {/* HOME WELCOME TAB */}
         {tab === "home" && (
