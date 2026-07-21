@@ -64,11 +64,11 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList,
 } = Recharts;
 
-const TASKS_KEY = "weekly_tracker_tasks_b10";
-const LABELS_KEY = "weekly_tracker_labels_b10";
-const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b10";
-const USER_NAME_KEY = "weekly_tracker_username_b10";
-const TOUR_KEY = "weekly_tracker_tour_b10";
+const TASKS_KEY = "weekly_tracker_tasks_b12";
+const LABELS_KEY = "weekly_tracker_labels_b12";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b12";
+const USER_NAME_KEY = "weekly_tracker_username_b12";
+const TOUR_KEY = "weekly_tracker_tour_b12";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -412,25 +412,6 @@ const initializeUserProfile = async (user, officialName = "", workCenter = "040"
   }
 };
 
-const migrateLegacyTasks = async (user) => {
-  if (!window.db || !window.dbOperations) return;
-  const { collection, getDocs, doc, setDoc, deleteDoc } = window.dbOperations;
-  
-  try {
-    const rootSnapshot = await getDocs(collection(window.db, "tasks"));
-    if (!rootSnapshot.empty) {
-      for (const legacyDoc of rootSnapshot.docs) {
-        const taskData = legacyDoc.data();
-        const targetRef = doc(window.db, "users", user.uid, "tasks", legacyDoc.id);
-        await setDoc(targetRef, taskData, { merge: true });
-        await deleteDoc(legacyDoc.ref);
-      }
-    }
-  } catch (e) {
-    console.error("Migration error:", e);
-  }
-};
-
 function CommandWeeklyTaskTracker() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -486,7 +467,6 @@ function CommandWeeklyTaskTracker() {
         if (isRegistering) {
           const userCredential = await createUserWithEmailAndPassword(window.auth, pseudoEmail, authPassword);
           await initializeUserProfile(userCredential.user, draftOfficialName);
-          await migrateLegacyTasks(userCredential.user);
           setAskingOfficialName(true);
         } else {
           await signInWithEmailAndPassword(window.auth, pseudoEmail, authPassword);
@@ -498,7 +478,6 @@ function CommandWeeklyTaskTracker() {
     }
   };
 
-  // OOMA Provisioning Handler
   const handleProvisionAccount = async (e) => {
     e.preventDefault();
     setProvSuccess(null);
@@ -527,7 +506,7 @@ function CommandWeeklyTaskTracker() {
       });
 
       await signOut(secondaryAuth);
-      setProvSuccess({ type: "success", text: `Successfully provisioned [${newProvUser}] under WC [${newProvWC}].` });
+      setProvSuccess({ type: "success", text: `Successfully created user [${newProvUser}] under WC [${newProvWC}].` });
       setNewProvUser(""); setNewProvPass(""); setNewProvName("");
 
       const { collection, getDocs } = window.dbOperations;
@@ -596,7 +575,6 @@ function CommandWeeklyTaskTracker() {
     setShowTour(true);
   };
 
-  const [draftUserName, setDraftUserName] = useState("");
   const [showTour, setShowTour] = useState(false);
 
   const [tasks, setTasks] = useState([]);
@@ -642,36 +620,35 @@ function CommandWeeklyTaskTracker() {
     return () => clearInterval(timer);
   }, []);
 
-  // Cloud sync for tasks & labels via onAuthStateChanged
+  // Centralized Root Tasks Collection Listener (Fixes Task Delegation Bug)
   useEffect(() => {
+    let unsubscribeAuth = null;
     let unsubscribeTasks = null;
 
-    if (window.auth && window.authOperations) {
+    if (window.auth && window.authOperations && window.db && window.dbOperations) {
       const { onAuthStateChanged } = window.authOperations;
-      const unsubscribeAuth = onAuthStateChanged(window.auth, async (user) => {
+      const { collection, onSnapshot, doc, getDoc } = window.dbOperations;
+
+      unsubscribeAuth = onAuthStateChanged(window.auth, async (user) => {
         if (user) {
           await initializeUserProfile(user);
-          await migrateLegacyTasks(user);
-
-          if (window.db && window.dbOperations) {
-            const { doc, getDoc, collection, getDocs } = window.dbOperations;
-            const userSnap = await getDoc(doc(window.db, "users", user.uid));
-            if (userSnap.exists()) {
-              const uData = userSnap.data();
-              setUserRole(uData.role || "admin");
-              setUserWorkCenter(uData.workCenter || "040");
-              if (uData.displayName) {
-                setUserName(uData.displayName);
-                lsSet(USER_NAME_KEY, uData.displayName);
-              }
+          
+          const userSnap = await getDoc(doc(window.db, "users", user.uid));
+          if (userSnap.exists()) {
+            const uData = userSnap.data();
+            setUserRole(uData.role || "admin");
+            setUserWorkCenter(uData.workCenter || "040");
+            if (uData.displayName) {
+              setUserName(uData.displayName);
+              lsSet(USER_NAME_KEY, uData.displayName);
             }
+          }
 
-            const usersSnap = await getDocs(collection(window.db, "users"));
-            let sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-            setShopSailors(sailors);
-            if (sailors.length > 0 && !selectedSailorUid) {
-              setSelectedSailorUid(sailors[0].uid || sailors[0].id);
-            }
+          const usersSnap = await getDocs(collection(window.db, "users"));
+          let sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setShopSailors(sailors);
+          if (sailors.length > 0 && !selectedSailorUid) {
+            setSelectedSailorUid(sailors[0].uid || sailors[0].id);
           }
 
           const storedName = lsGet(USER_NAME_KEY);
@@ -682,36 +659,26 @@ function CommandWeeklyTaskTracker() {
           }
           setAskingName(false);
 
-          if (window.db && window.dbOperations) {
-            const { doc, getDoc } = window.dbOperations;
-            try {
-              const labelDocSnap = await getDoc(doc(window.db, "users", user.uid, "config", "labels"));
-              if (labelDocSnap.exists() && labelDocSnap.data().list) {
-                setLabels(labelDocSnap.data().list);
-                lsSet(LABELS_KEY, labelDocSnap.data().list);
-                if (labelDocSnap.data().list.length > 0 && !newLabel) {
-                  setNewLabel(labelDocSnap.data().list[0].name);
-                }
-              } else {
-                const storedLabels = lsGet(LABELS_KEY);
-                const activeLabels = Array.isArray(storedLabels) ? storedLabels : [];
-                setLabels(activeLabels);
-                if (activeLabels.length > 0 && !newLabel) setNewLabel(activeLabels[0].name);
-              }
-            } catch (e) {
-              console.error("Error loading labels:", e);
-            }
-
-          const { collection, onSnapshot } = window.dbOperations;
+          // Listen to centralized root "tasks" collection where assignedTo matches users
           if (unsubscribeTasks) unsubscribeTasks();
-          unsubscribeTasks = onSnapshot(collection(window.db, "users", user.uid, "tasks"), (snapshot) => {
-            const cloudTasks = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
-            setTasks(cloudTasks);
-            lsSet(TASKS_KEY, cloudTasks);
-          }, (error) => {
-            console.error("Firestore task sync error:", error);
+          unsubscribeTasks = onSnapshot(collection(window.db, "tasks"), (snapshot) => {
+            const allTasks = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            const myUid = user.uid;
+
+            // Tasks assigned to me (or legacy tasks without assignedTo created by me)
+            const myTasks = allTasks.filter(t => t.assignedTo === myUid || (!t.assignedTo));
+            setTasks(myTasks);
+            lsSet(TASKS_KEY, myTasks);
+
+            // If inspecting a sailor in oversight mode
+            if (selectedSailorUid) {
+              const targeted = allTasks.filter(t => t.assignedTo === selectedSailorUid);
+              setSailorTasks(targeted);
+            }
+          }, (err) => {
+            console.error("Tasks snapshot error:", err);
           });
-          }
+
         } else {
           setUserName("");
           setUserRole("sailor");
@@ -721,74 +688,44 @@ function CommandWeeklyTaskTracker() {
           if (unsubscribeTasks) unsubscribeTasks();
         }
         setLoaded(true);
-      }, (error) => {
-        console.error("Auth state error:", error);
-        setLoaded(true);
       });
+
       return () => {
-        unsubscribeAuth();
+        if (unsubscribeAuth) unsubscribeAuth();
         if (unsubscribeTasks) unsubscribeTasks();
       };
     } else {
       setLoaded(true);
-      const storedLabels = lsGet(LABELS_KEY);
-      const activeLabels = Array.isArray(storedLabels) ? storedLabels : [];
-      setLabels(activeLabels);
-      if (activeLabels.length > 0) setNewLabel(activeLabels[0].name);
-
       const storedTasks = lsGet(TASKS_KEY);
       if (Array.isArray(storedTasks)) setTasks(storedTasks);
     }
-  }, []);
+  }, [selectedSailorUid]);
 
   const filteredShopSailors = useMemo(() => {
     if (selectedWcFilter === "ALL") return shopSailors;
     return shopSailors.filter(s => (s.workCenter || "040") === selectedWcFilter);
   }, [shopSailors, selectedWcFilter]);
 
-  useEffect(() => {
-    if (tab !== "oversight" || !selectedSailorUid || !window.db || !window.dbOperations) return;
-    const { collection, onSnapshot } = window.dbOperations;
-    const unsub = onSnapshot(collection(window.db, "users", selectedSailorUid, "tasks"), (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setSailorTasks(list);
-    });
-    return () => unsub();
-  }, [tab, selectedSailorUid]);
-
-  const completeTour = () => {
-      lsSet(TOUR_KEY, true);
-      setShowTour(false);
-  }
-
-  const saveLabelsToCloud = (updatedLabels) => {
-    if (window.db && window.dbOperations && window.auth && window.auth.currentUser) {
-      const { doc, setDoc } = window.dbOperations;
-      const uid = window.auth.currentUser.uid;
-      setDoc(doc(window.db, "users", uid, "config", "labels"), { list: updatedLabels }).catch(e => console.error("Error saving labels:", e));
-    }
-  };
-
-  const commit = useCallback((updater, targetUid = null) => {
-    const activeUid = targetUid || (window.auth && window.auth.currentUser ? window.auth.currentUser.uid : null);
-    
-    setTasks((prev) => { 
-      const next = typeof updater === "function" ? updater(prev) : updater; 
-      if (!targetUid || (window.auth && window.auth.currentUser && targetUid === window.auth.currentUser.uid)) {
-        lsSet(TASKS_KEY, next); 
-      }
+  const commitTasks = useCallback((updater) => {
+    setTasks((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      lsSet(TASKS_KEY, next);
       
-      if (window.db && window.dbOperations && activeUid) {
+      if (window.db && window.dbOperations && window.auth && window.auth.currentUser) {
         const { doc, setDoc } = window.dbOperations;
+        const currentUid = window.auth.currentUser.uid;
         next.forEach(async (t) => {
           try {
-            await setDoc(doc(window.db, "users", activeUid, "tasks", String(t.id)), t);
+            await setDoc(doc(window.db, "tasks", String(t.id)), {
+              ...t,
+              assignedTo: t.assignedTo || currentUid
+            });
           } catch (e) {
-            console.error("Error saving task to cloud:", e);
+            console.error("Error committing task to Firestore:", e);
           }
         });
       }
-      return next; 
+      return next;
     });
   }, []);
 
@@ -796,9 +733,8 @@ function CommandWeeklyTaskTracker() {
   const weekTotal = weekTasks.length, weekCompleted = weekTasks.filter((t) => t.done).length;
   const pct = weekTotal === 0 ? 0 : Math.round((weekCompleted / weekTotal) * 100);
 
-  const oversightWeekTasks = sailorTasks.filter(inActiveWeek);
-  const oversightTotal = oversightWeekTasks.length;
-  const oversightCompleted = oversightWeekTasks.filter(t => t.done).length;
+  const oversightTotal = sailorTasks.filter(inActiveWeek).length;
+  const oversightCompleted = sailorTasks.filter(inActiveWeek).filter(t => t.done).length;
   const oversightPct = oversightTotal === 0 ? 0 : Math.round((oversightCompleted / oversightTotal) * 100);
   const selectedSailorObj = shopSailors.find(s => (s.uid || s.id) === selectedSailorUid);
 
@@ -809,7 +745,7 @@ function CommandWeeklyTaskTracker() {
     prevPct.current = pct;
   }, [pct, loaded, weekTotal]);
 
-  const addTask = () => {
+  const addTask = async () => {
     setAttemptedSubmit(true);
     if (!newText.trim() || !newDue) {
       setErrorAlert("Both a Task Name and a Due Date are required to create a task.");
@@ -825,78 +761,84 @@ function CommandWeeklyTaskTracker() {
         timeMs: 0, runningSince: null, assignedTo: targetUid
     };
     
-    if (targetUid && window.auth && window.auth.currentUser && targetUid !== currentUid) {
-      if (window.db && window.dbOperations) {
-        const { doc, setDoc } = window.dbOperations;
-        setDoc(doc(window.db, "users", targetUid, "tasks", String(newTask.id)), newTask).catch(e => console.error("Error assigning task:", e));
+    if (window.db && window.dbOperations) {
+      const { doc, setDoc } = window.dbOperations;
+      try {
+        await setDoc(doc(window.db, "tasks", String(newTask.id)), newTask);
+      } catch (e) {
+        console.error("Error writing task:", e);
       }
     } else {
-      commit((prev) => [...prev, newTask]);
+      commitTasks((prev) => [...prev, newTask]);
     }
 
     setNewText(""); setNewDue(""); setNewPriority("medium"); setNewNote(""); setAssignedWorkerUid(""); setAttemptedSubmit(false);
   };
 
-  const toggleTimer = (id) => commit((prev) => prev.map((t) => t.id !== id ? t : (t.runningSince ? { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null } : { ...t, runningSince: new Date().toISOString() })));
+  const toggleTimer = (id) => {
+    const nextTasks = tasks.map((t) => t.id !== id ? t : (t.runningSince ? { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null } : { ...t, runningSince: new Date().toISOString() }));
+    commitTasks(nextTasks);
+  };
   
   const triggerAction = (type, id) => setConfirmAction({ type, id });
   
-  const executeConfirmAction = () => {
+  const executeConfirmAction = async () => {
     if (!confirmAction) return;
     const { type, id } = confirmAction;
     if (type === 'delete') {
-      if (window.db && window.dbOperations && window.auth && window.auth.currentUser) {
+      if (window.db && window.dbOperations) {
         const { doc, deleteDoc } = window.dbOperations;
-        const uid = window.auth.currentUser.uid;
-        deleteDoc(doc(window.db, "users", uid, "tasks", String(id))).catch(e => console.error("Error deleting from cloud:", e));
+        await deleteDoc(doc(window.db, "tasks", String(id))).catch(e => console.error("Error deleting task:", e));
       }
-      commit((prev) => prev.filter((t) => t.id !== id));
+      commitTasks((prev) => prev.filter((t) => t.id !== id));
     }
     else if (type === 'finish' || type === 'complete') {
         const completedTime = new Date().toISOString();
-        commit((prev) => prev.map((t) => t.id !== id ? t : { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null, done: true, completedAt: completedTime }));
+        const updated = tasks.map((t) => t.id !== id ? t : { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null, done: true, completedAt: completedTime });
+        commitTasks(updated);
     }
     else if (type === 'signout') {
       if (window.auth) window.auth.signOut();
     }
     else if (type === 'reset') {
       window.localStorage.clear();
-      setTasks([]); setLabels([]); setUserName(""); setDraftUserName(""); setTab("home"); setAskingName(true); setShowTour(false);
+      setTasks([]); setLabels([]); setUserName(""); setTab("home"); setAskingName(true); setShowTour(false);
     }
     setConfirmAction(null);
   };
 
-  const uncheckTask = (id) => { commit((prev) => prev.map((t) => t.id === id ? { ...t, done: false, completedAt: null } : t)); };
+  const uncheckTask = (id) => {
+    const updated = tasks.map((t) => t.id === id ? { ...t, done: false, completedAt: null } : t);
+    commitTasks(updated);
+  };
 
-  const moveToNextWeek = (id) => commit((prev) => prev.map((t) => {
+  const moveToNextWeek = (id) => {
+    const updated = tasks.map((t) => {
       if (t.id !== id) return t;
       const base = t.due ? parseDue(t.due) : new Date();
       base.setDate(base.getDate() + 7);
       return { ...t, due: fmtDue(base) };
-  }));
+    });
+    commitTasks(updated);
+  };
 
   const saveEdit = async () => {
     if (!editingTask || !editingTask.text.trim()) return;
     const currentUid = window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "";
     const newAssignedTo = editingTask.assignedTo || currentUid;
-    const oldAssignedTo = tasks.find(t => t.id === editingTask.id)?.assignedTo || currentUid;
 
-    if (oldAssignedTo !== newAssignedTo && window.db && window.dbOperations) {
-      const { doc, deleteDoc, setDoc } = window.dbOperations;
+    const updatedTask = { ...editingTask, text: editingTask.text.trim(), assignedTo: newAssignedTo };
+    
+    if (window.db && window.dbOperations) {
+      const { doc, setDoc } = window.dbOperations;
       try {
-        await deleteDoc(doc(window.db, "users", oldAssignedTo, "tasks", String(editingTask.id)));
-        await setDoc(doc(window.db, "users", newAssignedTo, "tasks", String(editingTask.id)), {
-          ...editingTask,
-          text: editingTask.text.trim()
-        });
-        setEditingTask(null);
-        return;
+        await setDoc(doc(window.db, "tasks", String(updatedTask.id)), updatedTask);
       } catch (e) {
-        console.error("Error reassigning task:", e);
+        console.error("Error updating task assignment:", e);
       }
     }
 
-    commit((prev) => prev.map((t) => t.id === editingTask.id ? { ...editingTask, text: editingTask.text.trim(), assignedTo: newAssignedTo } : t ));
+    commitTasks((prev) => prev.map((t) => t.id === updatedTask.id ? updatedTask : t ));
     setEditingTask(null);
   };
 
@@ -945,7 +887,7 @@ function CommandWeeklyTaskTracker() {
           if (newLabel === oldName) setNewLabel(trimmed);
           return next;
       });
-      commit(prev => prev.map(t => t.label === oldName ? { ...t, label: trimmed } : t));
+      commitTasks(prev => prev.map(t => t.label === oldName ? { ...t, label: trimmed } : t));
   };
   const deleteLabel = (nameToDelete) => {
       setLabels(prev => {
@@ -955,7 +897,7 @@ function CommandWeeklyTaskTracker() {
           if (newLabel === nameToDelete) setNewLabel(next.length > 0 ? next[0].name : "");
           return next;
       });
-      commit(prev => prev.map(t => t.label === nameToDelete ? { ...t, label: "" } : t));
+      commitTasks(prev => prev.map(t => t.label === nameToDelete ? { ...t, label: "" } : t));
   };
   const createLabel = (newLabelObj) => {
     setLabels((prev) => {
@@ -969,7 +911,7 @@ function CommandWeeklyTaskTracker() {
   };
   const saveTaskNote = (id, text) => {
     const trimmed = text.trim();
-    commit((prev) => prev.map((t) => t.id === id ? { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString() } : null } : t ));
+    commitTasks((prev) => prev.map((t) => t.id === id ? { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString() } : null } : t ));
   };
 
   const analytics = useMemo(() => {
@@ -1250,7 +1192,7 @@ function CommandWeeklyTaskTracker() {
       );
     }
 
-    // Add New User Modal (formerly Provision)
+    // Add New User Modal
     if (showProvisionModal) {
       return (
         <ModalOverlay zIndex="z-[80]">
@@ -1581,7 +1523,7 @@ function CommandWeeklyTaskTracker() {
       <div className="max-w-4xl mx-auto w-full flex-1">
         <header className="mb-8 flex justify-between items-end">
           <div>
-              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v3.1]</p>
+              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v3.2]</p>
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
               {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
           </div>
@@ -1604,20 +1546,20 @@ function CommandWeeklyTaskTracker() {
         {/* ADMIN PANEL / SUPERVISOR OVERSIGHT TAB */}
         {tab === "oversight" && (userRole === "supervisor" || userRole === "admin") && (
           <div className="space-y-6">
-            {/* Admin Header with Action Buttons */}
-            <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div>
+            {/* Admin Header with Perfectly Centered & Uniform Action Buttons */}
+            <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col md:flex-row justify-between items-center gap-4">
+              <div className="text-center md:text-left">
                 <h2 className="font-mono text-xs tracking-widest text-teal-400 mb-1">COMMAND MASTER ADMIN PANEL</h2>
                 <p className="text-xl font-bold text-white">Work Center & Division Oversight</p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={() => setShowProvisionModal(true)} className="h-10 font-mono text-xs font-bold tracking-widest px-4 rounded transition-transform active:scale-95 flex items-center" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 w-full md:w-auto">
+                <button onClick={() => setShowProvisionModal(true)} className="h-10 font-mono text-xs font-bold tracking-widest rounded transition-transform active:scale-95 flex items-center justify-center w-full sm:w-48" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
                   ＋ ADD NEW USER
                 </button>
-                <button onClick={() => setShowUserManager(true)} className="h-10 font-mono text-xs tracking-widest px-4 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 flex items-center">
+                <button onClick={() => setShowUserManager(true)} className="h-10 font-mono text-xs tracking-widest rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 flex items-center justify-center w-full sm:w-48">
                   👥 MANAGE USERS
                 </button>
-                <button onClick={() => setShowWcManager(true)} className="h-10 font-mono text-xs tracking-widest px-4 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 flex items-center">
+                <button onClick={() => setShowWcManager(true)} className="h-10 font-mono text-xs tracking-widest rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 flex items-center justify-center w-full sm:w-48">
                   ⚙️ MANAGE WORK CENTERS
                 </button>
               </div>
