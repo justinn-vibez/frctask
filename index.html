@@ -1,50 +1,54 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<!-- Firebase & Firestore Module Integration -->
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-  import { getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Command Weekly Task Tracker (b7)</title>
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyAn0EQeQD8DOgCL8Zhu3hnPdqYCfoB2Jg",
-    authDomain: "frc-task-tracker.firebaseapp.com",
-    projectId: "frc-task-tracker",
-    storageBucket: "frc-task-tracker.appspot.com",
-    messagingSenderId: "503202571446",
-    appId: "1:503202571446:web:874025ff0a503d3ed3217"
-  };
+  <!-- Tailwind and Core Libraries -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+  <script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  <!-- Firebase Module Script -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-  // Expose `db` globally so your existing React functions can access it easily
-  window.db = db;
-  window.dbOperations = { collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc };
-</script>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Command Weekly Task Tracker (b7)</title>
+    const firebaseConfig = {
+      apiKey: "AIzaSyAUnOEQeQD0DGOcL8ZhU3hnPdqYCfBo2Jg",
+      authDomain: "frc-task-tracker.firebaseapp.com",
+      projectId: "frc-task-tracker",
+      storageBucket: "frc-task-tracker.firebasestorage.app",
+      messagingSenderId: "503202571446",
+      appId: "1:503202571446:web:874025ff0a503d3aed3217"
+    };
 
-<!-- ======== CDN DEPENDENCIES ======== -->
-<script src="https://cdn.tailwindcss.com"></script>
-<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
-<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
 
-<style>
-  html, body { background-color: #020617; margin: 0; color: #e2e8f0; font-family: ui-sans-serif, system-ui, sans-serif; }
-  @keyframes cwtt-fall { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(105vh) rotate(720deg); opacity: 0.7; } }
-  @keyframes cwtt-ring-glow { 0%, 100% { filter: drop-shadow(0 0 8px #22e0c988); } 50% { filter: drop-shadow(0 0 22px #22e0c9); } }
-  @keyframes cwtt-timer-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
-  @keyframes cwtt-fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-  .hide-scrollbar::-webkit-scrollbar { display: none; }
-  .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-  .tour-card { animation: cwtt-fade-in 0.4s ease-out forwards; }
-  @media (prefers-reduced-motion: reduce) { .cwtt-anim, .tour-card { animation: none !important; } }
-</style>
+    window.db = db;
+    window.auth = auth;
+    window.dbOperations = { collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc };
+    window.authOperations = { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged };
+  </script>
+
+  <style>
+    html, body { background-color: #020617; margin: 0; color: #e2e8f0; font-family: ui-sans-serif, system-ui, sans-serif; }
+    @keyframes cwtt-fall { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(105vh) rotate(720deg); opacity: 0.7; } }
+    @keyframes cwtt-ring-glow { 0%, 100% { filter: drop-shadow(0 0 8px #22e0c988); } 50% { filter: drop-shadow(0 0 22px #22e0c9); } }
+    @keyframes cwtt-timer-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    @keyframes cwtt-fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .tour-card { animation: cwtt-fade-in 0.4s ease-out forwards; }
+    @media (prefers-reduced-motion: reduce) { .cwtt-anim, .tour-card { animation: none !important; } }
+  </style>
 </head>
 <body>
 <div id="root"></div>
@@ -56,7 +60,6 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList,
 } = Recharts;
 
-// ---------- Constants & Colors ----------
 const TASKS_KEY = "weekly_tracker_tasks_b7";
 const LABELS_KEY = "weekly_tracker_labels_b7";
 const USER_NAME_KEY = "weekly_tracker_username_b7";
@@ -74,11 +77,9 @@ const PRIORITIES = [
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-// ---------- localStorage persistence ----------
 function lsGet(key) { try { const r = window.localStorage.getItem(key); return r ? JSON.parse(r) : null; } catch (e) { return null; } }
 function lsSet(key, value) { try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
 
-// ---------- Helpers ----------
 function parseDue(dueStr) { const [y, m, d] = dueStr.split("-").map(Number); return new Date(y, m - 1, d); }
 function fmtDue(date) { return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0"); }
 function daysUntil(dueStr) {
@@ -146,7 +147,6 @@ function fmtMinutes(ms) {
   return min >= 60 ? (min / 60).toFixed(1) + "h" : Math.round(min) + "m";
 }
 
-// ---------- UI Components ----------
 function ModalOverlay({ children, zIndex = "z-50" }) {
   return <div className={`fixed inset-0 ${zIndex} flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm`}>{children}</div>;
 }
@@ -193,7 +193,6 @@ function ProgressRing({ pct, completed, total, size = 170, stroke = 13 }) {
   );
 }
 
-// ---------- Tour Overlay ----------
 function GuidedTour({ onComplete }) {
   const [step, setStep] = useState(0);
   const steps = [
@@ -229,7 +228,6 @@ function GuidedTour({ onComplete }) {
   );
 }
 
-// ---------- Chart shared bits ----------
 const chartTooltipStyle = { backgroundColor: "#0f172a", border: "1px solid #334155", borderRadius: "6px", fontSize: "12px", fontFamily: "monospace", color: "#e2e8f0" };
 const axisTick = { fill: "#64748b", fontSize: 10, fontFamily: "monospace" };
 const axisTickLight = { fill: "#94a3b8", fontSize: 10, fontFamily: "monospace" };
@@ -255,7 +253,7 @@ function KpiCard({ label, value, sub, color = "#ffffff" }) {
     </div>
   );
 }
-// ---------- Per-task Notes Panel ----------
+
 function TaskNotes({ task, onSaveNote, compact = false }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(task.note && task.note.text ? task.note.text : "");
@@ -332,10 +330,52 @@ function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }
   );
 }
 
-// ---------- Main App ----------
 function CommandWeeklyTaskTracker() {
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [authError, setAuthError] = useState(null);
+
   const [userName, setUserName] = useState("");
   const [askingName, setAskingName] = useState(false);
+  const [askingOfficialName, setAskingOfficialName] = useState(false);
+  const [draftOfficialName, setDraftOfficialName] = useState("");
+
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    setAuthError(null);
+    const cleanUsername = authEmail.trim().toLowerCase();
+    if (!cleanUsername || !authPassword) {
+      setAuthError("Username and password are required.");
+      return;
+    }
+    const pseudoEmail = `${cleanUsername}@redbird.local`;
+
+    if (window.auth && window.authOperations) {
+      const { signInWithEmailAndPassword, createUserWithEmailAndPassword } = window.authOperations;
+      try {
+        if (isRegistering) {
+          await createUserWithEmailAndPassword(window.auth, pseudoEmail, authPassword);
+          // Prompt for official name immediately after new registration
+          setAskingOfficialName(true);
+        } else {
+          await signInWithEmailAndPassword(window.auth, pseudoEmail, authPassword);
+        }
+      } catch (err) {
+        console.error("Auth error:", err);
+        setAuthError(err.message.replace("Firebase: ", ""));
+      }
+    }
+  };
+
+  const saveOfficialName = () => {
+    const trimmed = draftOfficialName.trim();
+    if (!trimmed) return;
+    setUserName(trimmed);
+    lsSet(USER_NAME_KEY, trimmed);
+    setAskingOfficialName(false);
+  };
+
   const [draftUserName, setDraftUserName] = useState("");
   const [showTour, setShowTour] = useState(false);
 
@@ -353,7 +393,6 @@ function CommandWeeklyTaskTracker() {
   const [editingTask, setEditingTask] = useState(null); 
   const [managingLabels, setManagingLabels] = useState(false);
   
-  // New Manager Label State
   const [newManagerLabel, setNewManagerLabel] = useState("");
   const [newManagerColor, setNewManagerColor] = useState(LABEL_PALETTE[0]);
   
@@ -367,33 +406,50 @@ function CommandWeeklyTaskTracker() {
   const [writingNewNote, setWritingNewNote] = useState(false);
 
   useEffect(() => {
-    const storedName = lsGet(USER_NAME_KEY);
-    if (storedName) setUserName(storedName);
-    else setAskingName(true);
+    if (window.auth && window.authOperations) {
+      const { onAuthStateChanged } = window.authOperations;
+      const unsubscribeAuth = onAuthStateChanged(window.auth, (user) => {
+        if (user) {
+          const storedName = lsGet(USER_NAME_KEY);
+          if (storedName) {
+            setUserName(storedName);
+          } else {
+            setUserName(user.email.split("@")[0]);
+          }
+          setAskingName(false);
+        } else {
+          setUserName("");
+          setAskingName(true);
+        }
+        setLoaded(true);
+      }, (error) => {
+        console.error("Auth state error:", error);
+        setLoaded(true);
+      });
+      return () => unsubscribeAuth();
+    } else {
+      setLoaded(true);
+    }
 
     const storedLabels = lsGet(LABELS_KEY);
     const activeLabels = Array.isArray(storedLabels) ? storedLabels : [];
     setLabels(activeLabels);
     if (activeLabels.length > 0) setNewLabel(activeLabels[0].name);
 
-    // Connect to Firestore real-time listener if db is initialized
     if (window.db && window.dbOperations) {
       const { collection, onSnapshot } = window.dbOperations;
-      const unsubscribe = onSnapshot(collection(window.db, "tasks"), (snapshot) => {
+      const unsubscribeTasks = onSnapshot(collection(window.db, "tasks"), (snapshot) => {
         const cloudTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         if (cloudTasks.length > 0) {
           setTasks(cloudTasks);
         }
-        setLoaded(true);
       }, (error) => {
         console.error("Firestore sync error:", error);
-        setLoaded(true);
       });
-      return () => unsubscribe();
+      return () => unsubscribeTasks();
     } else {
       const storedTasks = lsGet(TASKS_KEY);
       if (Array.isArray(storedTasks)) setTasks(storedTasks);
-      setLoaded(true);
     }
   }, []);
 
@@ -419,7 +475,6 @@ function CommandWeeklyTaskTracker() {
       const next = typeof updater === "function" ? updater(prev) : updater; 
       lsSet(TASKS_KEY, next); 
       
-      // Background sync to Firestore cloud database
       if (window.db && window.dbOperations) {
         const { doc, setDoc } = window.dbOperations;
         next.forEach(async (t) => {
@@ -511,7 +566,6 @@ function CommandWeeklyTaskTracker() {
 
   const historyTasks = tasks.filter((t) => t.done).sort((a, b) => ((b.completedAt || "") < (a.completedAt || "") ? -1 : 1));
 
-  // --- LABEL MANAGEMENT ---
   const saveLabelEdits = (oldName, newName, newColor) => {
       const trimmed = newName.trim();
       if (!trimmed) return;
@@ -546,7 +600,6 @@ function CommandWeeklyTaskTracker() {
     commit((prev) => prev.map((t) => t.id === id ? { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString() } : null } : t ));
   };
 
-  // --- ANALYTICS ENGINE (Fully Restored) ---
   const analytics = useMemo(() => {
     const done = tasks.filter((t) => t.done && t.completedAt);
     const now = new Date();
@@ -633,20 +686,89 @@ function CommandWeeklyTaskTracker() {
     };
   }, [tasks]);
 
-  // --- Modals Render ---
   const renderModals = () => {
     if (askingName) {
       return (
         <ModalOverlay>
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-8 w-full max-w-md shadow-2xl text-center">
-            <h2 className="text-2xl font-bold text-white mb-2 tracking-tight">Welcome to Task Ops</h2>
-            <p className="text-sm text-slate-400 mb-6">Enter your name or rank to personalize your dashboard.</p>
-            <input autoFocus value={draftUserName} onChange={(e) => setDraftUserName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveUserName()} placeholder="e.g. AZ2 Smith" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white text-center mb-6 focus:outline-none focus:border-teal-400 transition-colors" />
-            <button onClick={saveUserName} className="w-full font-mono text-sm font-bold tracking-widest px-4 py-3 rounded text-slate-950 transition-transform active:scale-95 hover:brightness-110" style={{ backgroundColor: ACCENT.teal }}>INITIALIZE DASHBOARD</button>
+            <h2 className="text-2xl font-bold text-white mb-2 tracking-tight">
+              {isRegistering ? "Create Shop Account" : "Task Ops Login"}
+            </h2>
+            <p className="text-sm text-slate-400 mb-6">
+              {isRegistering ? "Set up your independent login for the command." : "Sign in with your username and password."}
+            </p>
+
+            {authError && (
+              <div className="mb-4 bg-rose-950/80 border border-rose-600 text-rose-300 text-xs font-mono p-3 rounded">
+                {authError}
+              </div>
+            )}
+
+            <form onSubmit={handleAuthSubmit} className="space-y-4">
+              <input 
+                type="text" 
+                autoFocus 
+                value={authEmail} 
+                onChange={(e) => setAuthEmail(e.target.value)} 
+                placeholder="Username (e.g. az2_smith)" 
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white text-center focus:outline-none focus:border-teal-400 transition-colors" 
+              />
+              <input 
+                type="password" 
+                value={authPassword} 
+                onChange={(e) => setAuthPassword(e.target.value)} 
+                placeholder="Password" 
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white text-center focus:outline-none focus:border-teal-400 transition-colors" 
+              />
+              <button 
+                type="submit" 
+                className="w-full font-mono text-sm font-bold tracking-widest px-4 py-3 rounded text-slate-950 transition-transform active:scale-95 hover:brightness-110" 
+                style={{ backgroundColor: ACCENT.teal }}
+              >
+                {isRegistering ? "REGISTER ACCOUNT" : "SIGN IN"}
+              </button>
+            </form>
+
+            <button 
+              onClick={() => { setIsRegistering(!isRegistering); setAuthError(null); }} 
+              className="mt-6 font-mono text-xs text-slate-400 hover:text-white underline tracking-wider"
+            >
+              {isRegistering ? "Already have an account? Sign in" : "Need an account? Register here"}
+            </button>
           </div>
         </ModalOverlay>
       );
     }
+
+    if (askingOfficialName) {
+      return (
+        <ModalOverlay zIndex="z-[80]">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-8 w-full max-w-md shadow-2xl text-center">
+            <h2 className="text-2xl font-bold text-white mb-2 tracking-tight">Set Official Name</h2>
+            <p className="text-sm text-slate-400 mb-6">Enter your official name or rate (e.g., AZ2 Medrano) for your profile header.</p>
+            <div className="space-y-4">
+              <input 
+                type="text" 
+                autoFocus 
+                value={draftOfficialName} 
+                onChange={(e) => setDraftOfficialName(e.target.value)} 
+                onKeyDown={(e) => e.key === "Enter" && saveOfficialName()} 
+                placeholder="e.g. AZ2 Medrano" 
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white text-center focus:outline-none focus:border-teal-400" 
+              />
+              <button 
+                onClick={saveOfficialName} 
+                className="w-full font-mono text-sm font-bold tracking-widest px-4 py-3 rounded text-slate-950 transition-transform active:scale-95" 
+                style={{ backgroundColor: ACCENT.teal }}
+              >
+                CONFIRM NAME
+              </button>
+            </div>
+          </div>
+        </ModalOverlay>
+      );
+    }
+
     if (showTour) return <GuidedTour onComplete={completeTour} />;
     if (writingNewNote) {
         return (
@@ -680,7 +802,6 @@ function CommandWeeklyTaskTracker() {
                      <button onClick={() => setManagingLabels(false)} className="text-slate-500 hover:text-white">✕</button>
                  </h3>
                  
-                 {/* CREATION SUITE */}
                  <div className="mb-6 p-4 bg-slate-800 rounded border border-slate-700">
                     <h4 className="font-mono text-[10px] tracking-widest text-slate-400 mb-2">CREATE NEW LABEL</h4>
                     <div className="flex gap-2 mb-3">
@@ -746,7 +867,6 @@ function CommandWeeklyTaskTracker() {
     return null;
   };
 
-  // --- TV DISPLAY MODE ---
   if (tvMode) {
       const immediateTasks = activeTasks.filter(t => isDueTodayOrOverdue(t) || t.priority === 'asap');
       const standardTasks = activeTasks.filter(t => !isDueTodayOrOverdue(t) && t.priority !== 'asap');
@@ -821,7 +941,6 @@ function CommandWeeklyTaskTracker() {
       );
   }
 
-  // --- NORMAL VIEW ---
   if (!loaded) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><p className="text-slate-500 font-mono tracking-widest animate-pulse">LOADING…</p></div>;
 
   const onTimeRate = analytics.onTime + analytics.late > 0 ? Math.round((analytics.onTime / (analytics.onTime + analytics.late)) * 100) : null;
@@ -838,7 +957,12 @@ function CommandWeeklyTaskTracker() {
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
               {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
           </div>
-          <button onClick={() => setTvMode(true)} className="font-mono text-[10px] tracking-widest px-3 py-1.5 rounded border border-slate-700 bg-slate-900 text-slate-400 hover:text-white transition-colors hidden sm:block">📺 TV MODE</button>
+          <div className="flex gap-2">
+            {!askingName && window.auth && (
+              <button onClick={() => window.auth.signOut()} className="font-mono text-[10px] tracking-widest px-3 py-1.5 rounded border border-rose-900 bg-rose-950/40 text-rose-400 hover:text-white transition-colors">SIGN OUT</button>
+            )}
+            <button onClick={() => setTvMode(true)} className="font-mono text-[10px] tracking-widest px-3 py-1.5 rounded border border-slate-700 bg-slate-900 text-slate-400 hover:text-white transition-colors hidden sm:block">📺 TV MODE</button>
+          </div>
         </header>
 
         <section className="bg-slate-900 border border-slate-800 rounded-lg p-6 mb-6 flex flex-col sm:flex-row items-center gap-6">
