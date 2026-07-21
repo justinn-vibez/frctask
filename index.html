@@ -406,6 +406,25 @@ const initializeUserProfile = async (user, officialName = "") => {
   }
 };
 
+const migrateLegacyTasks = async (user) => {
+  if (!window.db || !window.dbOperations) return;
+  const { collection, getDocs, doc, setDoc, deleteDoc } = window.dbOperations;
+  
+  try {
+    const rootSnapshot = await getDocs(collection(window.db, "tasks"));
+    if (!rootSnapshot.empty) {
+      for (const legacyDoc of rootSnapshot.docs) {
+        const taskData = legacyDoc.data();
+        const targetRef = doc(window.db, "users", user.uid, "tasks", legacyDoc.id);
+        await setDoc(targetRef, taskData, { merge: true });
+        await deleteDoc(legacyDoc.ref);
+      }
+    }
+  } catch (e) {
+    console.error("Migration error:", e);
+  }
+};
+
 function CommandWeeklyTaskTracker() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -433,6 +452,7 @@ function CommandWeeklyTaskTracker() {
         if (isRegistering) {
           const userCredential = await createUserWithEmailAndPassword(window.auth, pseudoEmail, authPassword);
           await initializeUserProfile(userCredential.user, draftOfficialName);
+          await migrateLegacyTasks(userCredential.user);
           setAskingOfficialName(true);
         } else {
           await signInWithEmailAndPassword(window.auth, pseudoEmail, authPassword);
@@ -508,6 +528,7 @@ function CommandWeeklyTaskTracker() {
       const unsubscribeAuth = onAuthStateChanged(window.auth, async (user) => {
         if (user) {
           await initializeUserProfile(user);
+          await migrateLegacyTasks(user);
 
           const storedName = lsGet(USER_NAME_KEY);
           if (storedName) {
