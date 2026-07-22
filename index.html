@@ -64,11 +64,11 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList, PieChart, Pie
 } = Recharts;
 
-const TASKS_KEY = "weekly_tracker_tasks_b27";
-const LABELS_KEY = "weekly_tracker_labels_b27";
-const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b27";
-const USER_NAME_KEY = "weekly_tracker_username_b27";
-const TOUR_KEY = "weekly_tracker_tour_b27";
+const TASKS_KEY = "weekly_tracker_tasks_b28";
+const LABELS_KEY = "weekly_tracker_labels_b28";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b28";
+const USER_NAME_KEY = "weekly_tracker_username_b28";
+const TOUR_KEY = "weekly_tracker_tour_b28";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -737,7 +737,6 @@ function CommandWeeklyTaskTracker() {
             console.error("Error loading labels:", e);
           }
 
-          // Strict Deduplication Map across personal and pool tasks
           const mergeTasks = (personal, pool) => {
             const map = new Map();
             [...personal, ...pool].forEach(t => {
@@ -1221,7 +1220,7 @@ function CommandWeeklyTaskTracker() {
     });
   };
 
-  // Aggregate Man-Hour Distribution Breakdown across all tasks for Analytics Pie/Bar Chart
+  // Aggregate Man-Hour Distribution Breakdown across all tasks for Analytics
   const manHourDistribution = useMemo(() => {
     const contributorMap = {};
     tasks.forEach(t => {
@@ -1304,6 +1303,23 @@ function CommandWeeklyTaskTracker() {
     done.forEach((t) => { byHourBlock[Math.floor(new Date(t.completedAt).getHours() / 3)].count += 1; });
     const peakBlock = byHourBlock.reduce((a, b) => (b.count > a.count ? b : a), byHourBlock[0]);
 
+    // Time efficiency by category calculation
+    const timedDone = done.filter((t) => totalTaskMs(t, nowTs) > 0);
+    const labelGroups = {};
+    timedDone.forEach((t) => {
+      const l = t.label || "Unlabeled";
+      if (!labelGroups[l]) labelGroups[l] = { totalMs: 0, count: 0 };
+      labelGroups[l].totalMs += totalTaskMs(t, nowTs);
+      labelGroups[l].count += 1;
+    });
+    const timeByLabel = Object.keys(labelGroups).map((l) => ({ 
+      label: l, 
+      avgMin: +(labelGroups[l].totalMs / labelGroups[l].count / 60000).toFixed(1), 
+      totalMin: +(labelGroups[l].totalMs / 60000).toFixed(1), 
+      count: labelGroups[l].count 
+    })).sort((a, b) => b.avgMin - a.avgMin);
+    const slowest = timeByLabel.length ? timeByLabel[0] : null;
+
     const doneDays = new Set(done.map((t) => dayKey(new Date(t.completedAt))));
     const isWeekday = (d) => { const day = d.getDay(); return day >= 1 && day <= 5; };
 
@@ -1355,12 +1371,11 @@ function CommandWeeklyTaskTracker() {
     const prev7 = byDay30.slice(-14, -7).reduce((s, d) => s + d.count, 0);
     const weekDelta = prev7 > 0 ? Math.round(((last7 - prev7) / prev7) * 100) : null;
 
-    const timed = done.filter((t) => totalTaskMs(t, nowTs) > 0);
     const totalTrackedMs = tasks.reduce((s, t) => s + totalTaskMs(t, nowTs), 0);
 
     return {
       byDay30, onTime, late, medianLead, leadPerTask, priorityReliability, byWeekday, busiestDay, byHourBlock, peakBlock,
-      currentStreak, bestStreak, last7, prev7, weekDelta, totalDone: done.length, totalTrackedMs, timedCount: timed.length,
+      currentStreak, bestStreak, last7, prev7, weekDelta, totalDone: done.length, totalTrackedMs, timedCount: timedDone.length, timeByLabel, slowest
     };
   }, [tasks, nowTs]);
 
@@ -1854,7 +1869,7 @@ function CommandWeeklyTaskTracker() {
       <div className="max-w-4xl mx-auto w-full flex-1">
         <header className="mb-8 flex justify-between items-end">
           <div>
-              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v7.0]</p>
+              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v7.1]</p>
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
               {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
           </div>
@@ -1952,7 +1967,7 @@ function CommandWeeklyTaskTracker() {
                     </div>
                   </div>
 
-                  {/* Individual Sailor Man-Hour Distribution Pie Chart in Admin Panel */}
+                  {/* Individual Sailor Man-Hour Distribution Chart */}
                   <div className="bg-slate-950 border border-slate-800 rounded-lg p-4">
                     <h4 className="font-mono text-xs tracking-widest text-teal-400 mb-2">INDIVIDUAL MAN-HOUR BREAKDOWN</h4>
                     {sailorManHourDistribution.length > 0 ? (
@@ -2255,7 +2270,7 @@ function CommandWeeklyTaskTracker() {
           </React.Fragment>
         )}
 
-        {/* ANALYTICS TAB (RESTORING ALL ORIGINAL v1 CHARTS + MAN-HOUR PIE) */}
+        {/* ANALYTICS TAB */}
         {tab === "analytics" && (
           <React.Fragment>
             <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6 flex items-center gap-6">
@@ -2278,7 +2293,7 @@ function CommandWeeklyTaskTracker() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                  {/* Man-Hour Distribution Breakdown Chart */}
+                  {/* Man-Hour Distribution Breakdown */}
                   <ChartCard title="MAN-HOUR DISTRIBUTION BY CONTRIBUTOR" subtitle="Total logged hours per maintainer across all tasks.">
                     {manHourDistribution.length > 0 ? (
                       <ResponsiveContainer width="100%" height={220}>
@@ -2297,7 +2312,33 @@ function CommandWeeklyTaskTracker() {
                     )}
                   </ChartCard>
 
-                  {/* Restored Chart 1: Daily Throughput */}
+                  {/* Restored: Time Efficiency by Category */}
+                  <ChartCard wide title="TIME EFFICIENCY BY CATEGORY" subtitle="Average (teal) and total (amber) clocked minutes per label.">
+                    {analytics.timeByLabel.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={220}>
+                        <BarChart data={analytics.timeByLabel} margin={{ top: 16, right: 4, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                          <XAxis dataKey="label" tick={axisTickLight} />
+                          <YAxis tick={axisTick} label={{ value: "minutes", angle: -90, position: "insideLeft", fill: "#475569", fontSize: 9, fontFamily: "monospace" }} />
+                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v, name) => [v + " min", name]} labelFormatter={(label, payload) => { const p = payload && payload[0] && payload[0].payload; return p ? label + " (" + p.count + " task" + (p.count === 1 ? "" : "s") + ")" : label; }} />
+                          <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
+                          <Bar dataKey="avgMin" name="Avg per task" fill={ACCENT.teal} radius={[3, 3, 0, 0]}>
+                            <LabelList dataKey="avgMin" position="top" formatter={(v) => v + "m"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
+                          </Bar>
+                          <Bar dataKey="totalMin" name="Total" fill={ACCENT.amber} radius={[3, 3, 0, 0]}>
+                            <LabelList dataKey="totalMin" position="top" formatter={(v) => v + "m"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="text-xs text-slate-600 font-mono py-6 text-center">Clock time on a task with ▶ CLOCK IN, then ✓ FINISH it.</p>
+                    )}
+                    {analytics.slowest && (
+                      <p className="font-mono text-[10px] tracking-widest text-slate-500 mt-2">HEAVIEST CATEGORY: <span style={{ color: ACCENT.amber }}>#{analytics.slowest.label}</span> AT {analytics.slowest.avgMin} MIN AVG</p>
+                    )}
+                  </ChartCard>
+
+                  {/* Restored: Daily Throughput */}
                   <ChartCard wide title={"DAILY THROUGHPUT — LAST " + chartRange + " DAYS"} subtitle="Bars: tasks completed per day. Line: 7-day rolling average." action={<div className="flex gap-1">{[14, 30].map((r) => (<button key={r} onClick={() => setChartRange(r)} className="font-mono text-[10px] font-bold tracking-widest px-2.5 py-1 rounded" style={chartRange === r ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b", border: "1px solid #334155" }}>{r}D</button>))}</div>}>
                     <ResponsiveContainer width="100%" height={200}>
                       <ComposedChart data={analytics.byDay30.slice(-chartRange)} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
@@ -2311,7 +2352,7 @@ function CommandWeeklyTaskTracker() {
                     </ResponsiveContainer>
                   </ChartCard>
 
-                  {/* Restored Chart 2: Lead Time per Task */}
+                  {/* Restored: Lead Time per Task */}
                   <ChartCard wide title="LEAD TIME PER TASK — LAST 12 DATED COMPLETIONS" subtitle="Days ahead of (teal) or behind (rose) the deadline.">
                     {analytics.leadPerTask.length > 0 ? (
                       <ResponsiveContainer width="100%" height={Math.max(160, analytics.leadPerTask.length * 28 + 40)}>
@@ -2332,7 +2373,7 @@ function CommandWeeklyTaskTracker() {
                     )}
                   </ChartCard>
 
-                  {/* Restored Chart 3: Reliability by Priority */}
+                  {/* Restored: Reliability by Priority */}
                   <ChartCard title="RELIABILITY BY PRIORITY" subtitle="On-time (teal) vs late (rose) per tier.">
                     <ResponsiveContainer width="100%" height={190}>
                       <BarChart data={analytics.priorityReliability} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
@@ -2347,7 +2388,7 @@ function CommandWeeklyTaskTracker() {
                     </ResponsiveContainer>
                   </ChartCard>
 
-                  {/* Restored Chart 4: Completions by Day of Week */}
+                  {/* Restored: Completions by Day of Week */}
                   <ChartCard title="COMPLETIONS BY DAY OF WEEK" subtitle="Busiest day highlighted amber.">
                     <ResponsiveContainer width="100%" height={190}>
                       <BarChart data={analytics.byWeekday} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
@@ -2364,7 +2405,7 @@ function CommandWeeklyTaskTracker() {
                     </ResponsiveContainer>
                   </ChartCard>
 
-                  {/* Restored Chart 5: Completions by Time of Day */}
+                  {/* Restored: Completions by Time of Day */}
                   <ChartCard wide title="COMPLETIONS BY TIME OF DAY" subtitle="3-hour blocks. Peak block highlighted amber.">
                     <ResponsiveContainer width="100%" height={170}>
                       <BarChart data={analytics.byHourBlock} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
