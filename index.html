@@ -64,11 +64,11 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList, PieChart, Pie
 } = Recharts;
 
-const TASKS_KEY = "weekly_tracker_tasks_b25";
-const LABELS_KEY = "weekly_tracker_labels_b25";
-const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b25";
-const USER_NAME_KEY = "weekly_tracker_username_b25";
-const TOUR_KEY = "weekly_tracker_tour_b25";
+const TASKS_KEY = "weekly_tracker_tasks_b26";
+const LABELS_KEY = "weekly_tracker_labels_b26";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b26";
+const USER_NAME_KEY = "weekly_tracker_username_b26";
+const TOUR_KEY = "weekly_tracker_tour_b26";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -151,7 +151,6 @@ function completedOnTime(task) {
   return task.completedAt && !task.due ? true : (lead === null ? null : lead >= 0);
 }
 
-// Calculate individual or collaborative contributor elapsed time
 function userElapsedMs(task, uid, nowTs) {
   if (!task.contributors) task.contributors = {};
   const base = task.contributors[uid] || 0;
@@ -163,7 +162,8 @@ function userElapsedMs(task, uid, nowTs) {
 function totalTaskMs(task, nowTs) {
   if (!task.contributors) return task.timeMs || 0;
   let sum = 0;
-  Object.keys(task.contributors).forEach(u => {
+  const uids = new Set([...Object.keys(task.contributors), ...Object.keys(task.runningWorkers || {})]);
+  uids.forEach(u => {
     sum += userElapsedMs(task, u, nowTs);
   });
   return sum;
@@ -469,7 +469,11 @@ const updateTaskInDb = async (taskObj, targetUid) => {
     const uid = targetUid || (window.auth?.currentUser?.uid);
     if (!uid) return;
     try { 
-      await setDoc(doc(window.db, "users", uid, "tasks", String(taskObj.id)), taskObj); 
+      if (uid.startsWith("WC-")) {
+        await setDoc(doc(window.db, "workcenters", uid.replace("WC-",""), "poolTasks", String(taskObj.id)), taskObj);
+      } else {
+        await setDoc(doc(window.db, "users", uid, "tasks", String(taskObj.id)), taskObj); 
+      }
     } catch(e) {
       console.error("Database update error:", e);
     }
@@ -733,12 +737,10 @@ function CommandWeeklyTaskTracker() {
             console.error("Error loading labels:", e);
           }
 
-          // Listen to personal tasks
           if (unsubscribeTasks) unsubscribeTasks();
           unsubscribeTasks = onSnapshot(collection(window.db, "users", user.uid, "tasks"), (snapshot) => {
             const personalTasks = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
             setTasks(prev => {
-              // Merge personal and pool tasks cleanly
               const poolItems = prev.filter(t => t.isPool);
               const map = new Map();
               [...personalTasks, ...poolItems].forEach(t => map.set(t.id, t));
@@ -750,7 +752,6 @@ function CommandWeeklyTaskTracker() {
             console.error("Firestore personal task sync error:", error);
           });
 
-          // Listen to Work Center Pool Tasks (Stored in shared pool path or via admin broadcast)
           if (unsubscribePoolTasks) unsubscribePoolTasks();
           unsubscribePoolTasks = onSnapshot(collection(window.db, "workcenters", currentWc, "poolTasks"), (snapshot) => {
             const poolTasks = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data(), isPool: true }));
@@ -763,7 +764,6 @@ function CommandWeeklyTaskTracker() {
               return merged;
             });
           }, (err) => {
-            // Fallback if workcenters collection hasn't been initialized yet
             console.log("Pool listener notice:", err.message);
           });
 
@@ -797,6 +797,14 @@ function CommandWeeklyTaskTracker() {
       setLoaded(true);
     }
   }, []);
+
+  // Performance Ticker: Updates `nowTs` every second ONLY when active timers are running
+  useEffect(() => {
+    const hasRunning = tasks.some(t => t.runningWorkers && Object.keys(t.runningWorkers).length > 0);
+    if (!hasRunning) return;
+    const timer = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [tasks]);
 
   const filteredShopSailors = useMemo(() => {
     if (selectedWcFilter === "ALL") return shopSailors;
@@ -886,7 +894,6 @@ function CommandWeeklyTaskTracker() {
     setNewText(""); setNewDue(""); setNewPriority("medium"); setNewNote(""); setAssignedWorkerUid(""); setAttemptedSubmit(false);
   };
 
-  // Collaborative Clock In / Clock Out per User
   const toggleCollaborativeTimer = (id) => {
     const currentUid = window.auth?.currentUser?.uid;
     if (!currentUid) return;
@@ -900,13 +907,11 @@ function CommandWeeklyTaskTracker() {
           const now = Date.now();
 
           if (runningWorkers[currentUid]) {
-            // Clock out / Pause
             const startMs = new Date(runningWorkers[currentUid]).getTime();
             const elapsed = Math.max(0, now - startMs);
             contributors[currentUid] = (contributors[currentUid] || 0) + elapsed;
             delete runningWorkers[currentUid];
           } else {
-            // Clock in / Start
             runningWorkers[currentUid] = new Date().toISOString();
           }
 
@@ -914,7 +919,6 @@ function CommandWeeklyTaskTracker() {
           
           if (t.isPool) {
             const wcCode = t.assignedTo ? t.assignedTo.replace("WC-", "") : userWorkCenter;
-            updateTaskInDb(newT, null); // handled separately if pool, let's write to workcenter collection
             if (window.db && window.dbOperations) {
               const { doc, setDoc } = window.dbOperations;
               setDoc(doc(window.db, "workcenters", wcCode, "poolTasks", String(newT.id)), newT).catch(e=>console.error(e));
@@ -958,8 +962,6 @@ function CommandWeeklyTaskTracker() {
         setTasks(prev => {
             const updated = prev.map((t) => {
                 if (t.id !== id) return t;
-                
-                // Finalize active timers for any running workers
                 const runningWorkers = { ...(t.runningWorkers || {}) };
                 const contributors = { ...(t.contributors || {}) };
                 const now = Date.now();
@@ -1051,6 +1053,7 @@ function CommandWeeklyTaskTracker() {
       } catch (e) {
         setErrorAlert("Permission Denied: Firebase rules block reassigning tasks.");
         setTimeout(() => setErrorAlert(null), 6000);
+        console.error("Error updating task assignment:", e);
         return;
       }
     }
@@ -1193,14 +1196,14 @@ function CommandWeeklyTaskTracker() {
     });
   };
 
-  // Aggregate Man-Hour Contributor Breakdown across all tasks for Analytics Pie Chart
+  // Aggregate Man-Hour Contributor Breakdown across all tasks for Analytics Pie/Bar Chart
   const manHourDistribution = useMemo(() => {
     const contributorMap = {};
     tasks.forEach(t => {
       if (t.contributors) {
         Object.keys(t.contributors).forEach(u => {
           const sailor = shopSailors.find(s => (s.uid || s.id) === u);
-          const name = sailor ? (sailor.displayName || sailor.email) : "Unknown Sailor";
+          const name = sailor ? (sailor.displayName || sailor.email) : (u === window.auth?.currentUser?.uid ? userName : "Maintainer");
           const totalMs = (t.contributors[u] || 0) + (t.runningWorkers && t.runningWorkers[u] ? (nowTs - new Date(t.runningWorkers[u]).getTime()) : 0);
           const hours = +(totalMs / 3600000).toFixed(2);
           if (hours > 0) {
@@ -1210,7 +1213,7 @@ function CommandWeeklyTaskTracker() {
       }
     });
     return Object.keys(contributorMap).map(name => ({ name, hours: contributorMap[name] }));
-  }, [tasks, shopSailors, nowTs]);
+  }, [tasks, shopSailors, nowTs, userName]);
 
   const analytics = useMemo(() => {
     const done = tasks.filter((t) => t.done && t.completedAt);
@@ -2023,7 +2026,7 @@ function CommandWeeklyTaskTracker() {
                     <select 
                       value={assignedWorkerUid} 
                       onChange={(e) => setAssignedWorkerUid(e.target.value)} 
-                      title="Assign worker or pool"
+                      title="Assign worker"
                       className="w-full h-10 bg-slate-800 border-2 border-teal-400 rounded px-3 text-xs text-teal-200 focus:outline-none hover:border-teal-300 transition-colors font-mono cursor-pointer"
                     >
                       <option value="">👤 Assign to Me</option>
@@ -2213,7 +2216,7 @@ function CommandWeeklyTaskTracker() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                  {/* Man-Hour Distribution Pie/Bar Breakdown Chart */}
+                  {/* Man-Hour Distribution Breakdown Chart */}
                   <ChartCard title="MAN-HOUR DISTRIBUTION BY CONTRIBUTOR" subtitle="Total logged hours per maintainer across all tasks.">
                     {manHourDistribution.length > 0 ? (
                       <ResponsiveContainer width="100%" height={220}>
