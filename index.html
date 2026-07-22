@@ -64,11 +64,11 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList, PieChart, Pie
 } = Recharts;
 
-const TASKS_KEY = "weekly_tracker_tasks_b29";
-const LABELS_KEY = "weekly_tracker_labels_b29";
-const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b29";
-const USER_NAME_KEY = "weekly_tracker_username_b29";
-const TOUR_KEY = "weekly_tracker_tour_b29";
+const TASKS_KEY = "weekly_tracker_tasks_b30";
+const LABELS_KEY = "weekly_tracker_labels_b30";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b30";
+const USER_NAME_KEY = "weekly_tracker_username_b30";
+const TOUR_KEY = "weekly_tracker_tour_b30";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -487,7 +487,7 @@ function CommandWeeklyTaskTracker() {
   const [authError, setAuthError] = useState(null);
 
   const [userName, setUserName] = useState("");
-  const [userRole, setUserRole] = useState("admin"); 
+  const [userRole, setUserRole] = useState("sailor"); 
   const [userWorkCenter, setUserWorkCenter] = useState("040");
   const [shopSailors, setShopSailors] = useState([]);
   const [selectedSailorUid, setSelectedSailorUid] = useState(null);
@@ -693,7 +693,7 @@ function CommandWeeklyTaskTracker() {
             const userSnap = await getDoc(doc(window.db, "users", user.uid));
             if (userSnap.exists()) {
               const uData = userSnap.data();
-              setUserRole(uData.role || "admin");
+              setUserRole(uData.role || "sailor");
               currentWc = uData.workCenter || "040";
               setUserWorkCenter(currentWc);
               if (uData.displayName) {
@@ -845,7 +845,7 @@ function CommandWeeklyTaskTracker() {
       return;
     }
     const currentUid = window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "";
-    const targetUid = assignedWorkerUid || currentUid;
+    const targetUid = (userRole === "supervisor" || userRole === "admin") ? (assignedWorkerUid || currentUid) : currentUid;
 
     const isPoolTask = targetUid.startsWith("WC-");
 
@@ -1303,7 +1303,6 @@ function CommandWeeklyTaskTracker() {
     done.forEach((t) => { byHourBlock[Math.floor(new Date(t.completedAt).getHours() / 3)].count += 1; });
     const peakBlock = byHourBlock.reduce((a, b) => (b.count > a.count ? b : a), byHourBlock[0]);
 
-    // Time efficiency by category calculation
     const timedDone = done.filter((t) => totalTaskMs(t, nowTs) > 0);
     const labelGroups = {};
     timedDone.forEach((t) => {
@@ -1745,26 +1744,28 @@ function CommandWeeklyTaskTracker() {
                 </select>
                 <input type="date" value={editingTask.due || ""} onChange={(e) => setEditingTask({...editingTask, due: e.target.value})} className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none" />
               </div>
-              <div>
-                <label className="block font-mono text-[10px] text-slate-400 mb-1">ASSIGNED WORKER / POOL</label>
-                <select 
-                  value={editingTask.assignedTo || (window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "")} 
-                  onChange={(e) => setEditingTask({...editingTask, assignedTo: e.target.value})}
-                  className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-teal-300 font-mono focus:outline-none"
-                >
-                  <option value={window.auth && window.auth.currentUser ? window.auth.currentUser.uid : ""}>👤 Assign to Me</option>
-                  <optgroup label="Work Center Pools">
-                    {workCenters.map(wc => <option key={wc} value={"WC-" + wc}>🏢 Work Center Pool: {wc}</option>)}
-                  </optgroup>
-                  <optgroup label="Individual Sailors">
-                    {shopSailors.map(s => (
-                      <option key={s.uid || s.id} value={s.uid || s.id}>
-                        👤 {s.displayName || s.email} [WC: {s.workCenter || "040"}]
-                      </option>
-                    ))}
-                  </optgroup>
-                </select>
-              </div>
+              {(userRole === "supervisor" || userRole === "admin") && (
+                <div>
+                  <label className="block font-mono text-[10px] text-slate-400 mb-1">ASSIGNED WORKER / POOL</label>
+                  <select 
+                    value={editingTask.assignedTo || (window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "")} 
+                    onChange={(e) => setEditingTask({...editingTask, assignedTo: e.target.value})}
+                    className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-teal-300 font-mono focus:outline-none"
+                  >
+                    <option value={window.auth && window.auth.currentUser ? window.auth.currentUser.uid : ""}>👤 Assign to Me</option>
+                    <optgroup label="Work Center Pools">
+                      {workCenters.map(wc => <option key={wc} value={"WC-" + wc}>🏢 Work Center Pool: {wc}</option>)}
+                    </optgroup>
+                    <optgroup label="Individual Sailors">
+                      {shopSailors.map(s => (
+                        <option key={s.uid || s.id} value={s.uid || s.id}>
+                          👤 {s.displayName || s.email} [WC: {s.workCenter || "040"}]
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setEditingTask(null)} className="font-mono text-xs tracking-wider px-4 py-2 rounded bg-slate-800 text-slate-400 border border-slate-700">CANCEL</button>
@@ -1857,6 +1858,7 @@ function CommandWeeklyTaskTracker() {
   if (!loaded) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><p className="text-slate-500 font-mono tracking-widest animate-pulse">LOADING…</p></div>;
 
   const onTimeRate = analytics.onTime + analytics.late > 0 ? Math.round((analytics.onTime / (analytics.onTime + analytics.late)) * 100) : null;
+  const canAssignTasks = userRole === "supervisor" || userRole === "admin";
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 px-4 py-8 sm:px-8 flex flex-col relative">
@@ -1869,7 +1871,7 @@ function CommandWeeklyTaskTracker() {
       <div className="max-w-4xl mx-auto w-full flex-1">
         <header className="mb-8 flex justify-between items-end">
           <div>
-              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v7.2]</p>
+              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v7.3]</p>
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
               {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
           </div>
@@ -1880,7 +1882,7 @@ function CommandWeeklyTaskTracker() {
 
         {/* Navigation Bar */}
         <nav className="flex gap-1 mb-6 bg-slate-900 border border-slate-800 rounded-lg p-1">
-          {(userRole === "supervisor" || userRole === "admin") && (
+          {canAssignTasks && (
             <button onClick={() => setTab("oversight")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "oversight" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ADMIN PANEL</button>
           )}
           <button onClick={() => setTab("home")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "home" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>HOME</button>
@@ -1890,9 +1892,9 @@ function CommandWeeklyTaskTracker() {
         </nav>
 
         {/* ADMIN PANEL / SUPERVISOR OVERSIGHT TAB */}
-        {tab === "oversight" && (userRole === "supervisor" || userRole === "admin") && (
+        {tab === "oversight" && canAssignTasks && (
           <div className="space-y-6">
-            {/* Admin Header with Multi-line Centered Title & Untouched Buttons */}
+            {/* Admin Header */}
             <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col md:flex-row justify-between items-center gap-4">
               <div className="text-center md:text-left">
                 <h2 className="font-mono text-xs tracking-widest text-teal-400 mb-1">COMMAND MASTER ADMIN PANEL</h2>
@@ -2087,7 +2089,8 @@ function CommandWeeklyTaskTracker() {
                   className={"w-full h-12 bg-slate-950 border rounded-lg px-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors shadow-inner " + (attemptedSubmit && !newText.trim() ? "border-rose-500" : "border-slate-700")} 
                 />
                 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 items-center">
+                {/* Dynamically adjust grid template based on Role */}
+                <div className={`grid grid-cols-2 sm:grid-cols-3 ${canAssignTasks ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-2 items-center`}>
                   <div className="w-full">
                     <LabelPicker labels={labels} value={newLabel} onChange={setNewLabel} onCreateLabel={createLabel} />
                   </div>
@@ -2099,26 +2102,31 @@ function CommandWeeklyTaskTracker() {
                   <div className="w-full">
                     <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className={"w-full h-10 bg-slate-800 border rounded px-3 text-sm text-white focus:outline-none hover:border-slate-500 transition-colors cursor-pointer " + (attemptedSubmit && !newDue ? "border-rose-500" : "border-slate-700")} />
                   </div>
-                  <div className="w-full">
-                    <select 
-                      value={assignedWorkerUid} 
-                      onChange={(e) => setAssignedWorkerUid(e.target.value)} 
-                      title="Assign worker"
-                      className="w-full h-10 bg-slate-800 border-2 border-teal-400 rounded px-3 text-xs text-teal-200 focus:outline-none hover:border-teal-300 transition-colors font-mono cursor-pointer"
-                    >
-                      <option value="">👤 Assign to Me</option>
-                      <optgroup label="Work Center Pools">
-                        {workCenters.map(wc => <option key={wc} value={"WC-" + wc}>🏢 Work Center Pool: {wc}</option>)}
-                      </optgroup>
-                      <optgroup label="Individual Sailors">
-                        {shopSailors.map(s => (
-                          <option key={s.uid || s.id} value={s.uid || s.id}>
-                            👤 {s.displayName || s.email}
-                          </option>
-                        ))}
-                      </optgroup>
-                    </select>
-                  </div>
+
+                  {/* Render Assignment Dropdown ONLY for Supervisors and Admins */}
+                  {canAssignTasks && (
+                    <div className="w-full">
+                      <select 
+                        value={assignedWorkerUid} 
+                        onChange={(e) => setAssignedWorkerUid(e.target.value)} 
+                        title="Assign worker"
+                        className="w-full h-10 bg-slate-800 border-2 border-teal-400 rounded px-3 text-xs text-teal-200 focus:outline-none hover:border-teal-300 transition-colors font-mono cursor-pointer"
+                      >
+                        <option value="">👤 Assign to Me</option>
+                        <optgroup label="Work Center Pools">
+                          {workCenters.map(wc => <option key={wc} value={"WC-" + wc}>🏢 Work Center Pool: {wc}</option>)}
+                        </optgroup>
+                        <optgroup label="Individual Sailors">
+                          {shopSailors.map(s => (
+                            <option key={s.uid || s.id} value={s.uid || s.id}>
+                              👤 {s.displayName || s.email}
+                            </option>
+                          ))}
+                        </optgroup>
+                      </select>
+                    </div>
+                  )}
+
                   <div className="w-full">
                     <button onClick={() => setWritingNewNote(true)} className="w-full h-10 font-mono text-xs font-bold tracking-widest px-3 rounded transition-colors flex items-center justify-center shrink-0" style={{ backgroundColor: newNote.trim() ? ACCENT.teal + "22" : "transparent", color: newNote.trim() ? ACCENT.teal : "#94a3b8", border: "1px solid " + (newNote.trim() ? ACCENT.teal + "66" : "#475569") }}>{newNote.trim() ? "📝 NOTE" : "📝 ADD NOTE"}</button>
                   </div>
