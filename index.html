@@ -64,11 +64,11 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList,
 } = Recharts;
 
-const TASKS_KEY = "weekly_tracker_tasks_b21";
-const LABELS_KEY = "weekly_tracker_labels_b21";
-const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b21";
-const USER_NAME_KEY = "weekly_tracker_username_b21";
-const TOUR_KEY = "weekly_tracker_tour_b21";
+const TASKS_KEY = "weekly_tracker_tasks_b22";
+const LABELS_KEY = "weekly_tracker_labels_b22";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b22";
+const USER_NAME_KEY = "weekly_tracker_username_b22";
+const TOUR_KEY = "weekly_tracker_tour_b22";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -112,6 +112,17 @@ function fmtStamp(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " · " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+function fmtNoteChangelog(iso, author) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  const byUser = author ? ` by ${author}` : "";
+  return `last edited${byUser} on ${dd}/${mm}/${yyyy} at ${hh}:${min}`;
 }
 function dayKey(date) { return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0"); }
 function getGreeting() {
@@ -273,17 +284,23 @@ function TaskNotes({ task, onSaveNote, compact = false }) {
 
   return (
     <div className="mt-2 w-full">
-      <button onClick={() => setOpen((o) => !o)} className="font-mono text-[10px] tracking-widest flex items-center gap-1.5 transition-colors" style={{ color: hasNote ? ACCENT.teal : "#64748b" }}>
-        <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2 1.5h8v7l-2 2H2v-9z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><path d="M4 4.5h4M4 6.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>
-        {hasNote ? "NOTES" : "ADD NOTE"}
-        {hasNote && task.note.updatedAt && <span className="text-slate-600 normal-case">· updated {fmtStamp(task.note.updatedAt)}</span>}
-        <span className="text-slate-600">{open ? "▲" : "▼"}</span>
-      </button>
+      <div className="flex items-center justify-between">
+        <button onClick={() => setOpen((o) => !o)} className="font-mono text-[10px] tracking-widest flex items-center gap-1.5 transition-colors" style={{ color: hasNote ? ACCENT.teal : "#64748b" }}>
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2 1.5h8v7l-2 2H2v-9z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><path d="M4 4.5h4M4 6.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>
+          {hasNote ? "NOTES" : "ADD NOTE"}
+          <span className="text-slate-600">{open ? "▲" : "▼"}</span>
+        </button>
+        {hasNote && task.note.updatedAt && (
+          <span className="text-slate-500 text-[10px] font-mono normal-case tracking-normal">
+            {fmtNoteChangelog(task.note.updatedAt, task.note.updatedBy)}
+          </span>
+        )}
+      </div>
       {open && (
         <div className="mt-2 bg-slate-950 border border-slate-800 rounded p-3">
           <textarea value={draft} onChange={(e) => { setDraft(e.target.value); setDirty(true); }} placeholder={compact ? "Closeout notes, references, follow-ups…" : "Details, references, blockers, passdown info…"} rows={compact ? 3 : 4} className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white placeholder-slate-500 leading-relaxed focus:outline-none focus:border-slate-500 resize-y" />
           <div className="flex items-center justify-between mt-2">
-            <span className="font-mono text-[10px] tracking-widest" style={{ color: dirty ? ACCENT.amber : "#475569" }}>{dirty ? "● UNSAVED" : task.note && task.note.updatedAt ? "SAVED " + fmtStamp(task.note.updatedAt) : "NO NOTE YET"}</span>
+            <span className="font-mono text-[10px] tracking-widest" style={{ color: dirty ? ACCENT.amber : "#475569" }}>{dirty ? "● UNSAVED" : task.note && task.note.updatedAt ? "SAVED" : "NO NOTE YET"}</span>
             <button onClick={save} disabled={!dirty} className="font-mono text-[10px] font-bold tracking-widest px-4 py-1.5 rounded transition-transform active:scale-95 disabled:opacity-40" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>SAVE NOTE</button>
           </div>
         </div>
@@ -774,7 +791,7 @@ function CommandWeeklyTaskTracker() {
 
     const newTask = { 
         id: "t-" + Date.now(), text: newText.trim(), label: newLabel || "", priority: newPriority, due: newDue, 
-        done: false, completedAt: null, note: newNote.trim() ? { text: newNote.trim(), updatedAt: new Date().toISOString() } : null, 
+        done: false, completedAt: null, note: newNote.trim() ? { text: newNote.trim(), updatedAt: new Date().toISOString(), updatedBy: userName } : null, 
         timeMs: 0, runningSince: null, assignedTo: targetUid
     };
     
@@ -802,45 +819,6 @@ function CommandWeeklyTaskTracker() {
           return newT;
        });
        lsSet(TASKS_KEY, updated);
-       return updated;
-    });
-  };
-
-  // Supervisor actions for inspected sailor tasks
-  const toggleSailorTimer = (id) => {
-    setSailorTasks(prev => {
-       const updated = prev.map(t => {
-          if (t.id !== id) return t;
-          const newT = t.runningSince ? { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null } : { ...t, runningSince: new Date().toISOString() };
-          updateTaskInDb(newT, selectedSailorUid);
-          return newT;
-       });
-       return updated;
-    });
-  };
-
-  const finishSailorTask = (id) => {
-    const completedTime = new Date().toISOString();
-    setSailorTasks(prev => {
-        const updated = prev.map(t => {
-            if (t.id !== id) return t;
-            const newT = { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null, done: true, completedAt: completedTime };
-            updateTaskInDb(newT, selectedSailorUid);
-            return newT;
-        });
-        return updated;
-    });
-  };
-
-  const saveSailorNote = (id, text) => {
-    const trimmed = text.trim();
-    setSailorTasks(prev => {
-       const updated = prev.map(t => {
-           if (t.id !== id) return t;
-           const newT = { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString() } : null };
-           updateTaskInDb(newT, selectedSailorUid);
-           return newT;
-       });
        return updated;
     });
   };
@@ -1028,11 +1006,50 @@ function CommandWeeklyTaskTracker() {
     setTasks(prev => {
        const updated = prev.map(t => {
            if (t.id !== id) return t;
-           const newT = { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString() } : null };
+           const newT = { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString(), updatedBy: userName } : null };
            updateTaskInDb(newT, window.auth?.currentUser?.uid);
            return newT;
        });
        lsSet(TASKS_KEY, updated);
+       return updated;
+    });
+  };
+
+  // Supervisor actions for inspected sailor tasks
+  const toggleSailorTimer = (id) => {
+    setSailorTasks(prev => {
+       const updated = prev.map(t => {
+          if (t.id !== id) return t;
+          const newT = t.runningSince ? { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null } : { ...t, runningSince: new Date().toISOString() };
+          updateTaskInDb(newT, selectedSailorUid);
+          return newT;
+       });
+       return updated;
+    });
+  };
+
+  const finishSailorTask = (id) => {
+    const completedTime = new Date().toISOString();
+    setSailorTasks(prev => {
+        const updated = prev.map(t => {
+            if (t.id !== id) return t;
+            const newT = { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null, done: true, completedAt: completedTime };
+            updateTaskInDb(newT, selectedSailorUid);
+            return newT;
+        });
+        return updated;
+    });
+  };
+
+  const saveSailorNote = (id, text) => {
+    const trimmed = text.trim();
+    setSailorTasks(prev => {
+       const updated = prev.map(t => {
+           if (t.id !== id) return t;
+           const newT = { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString(), updatedBy: userName } : null };
+           updateTaskInDb(newT, selectedSailorUid);
+           return newT;
+       });
        return updated;
     });
   };
