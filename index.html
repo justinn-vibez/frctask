@@ -50,7 +50,7 @@
     @keyframes cwtt-fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     .hide-scrollbar::-webkit-scrollbar { display: none; }
     .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-    .tour-card { animation: cwtt-fade-in 0.4s ease-out forwards; }
+    .tour-card { animation: cwtt-fade-in 0.3s ease-out forwards; }
     @media (prefers-reduced-motion: reduce) { .cwtt-anim, .tour-card { animation: none !important; } }
   </style>
 </head>
@@ -64,11 +64,11 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList,
 } = Recharts;
 
-const TASKS_KEY = "weekly_tracker_tasks_b22";
-const LABELS_KEY = "weekly_tracker_labels_b22";
-const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b22";
-const USER_NAME_KEY = "weekly_tracker_username_b22";
-const TOUR_KEY = "weekly_tracker_tour_b22";
+const TASKS_KEY = "weekly_tracker_tasks_b23";
+const LABELS_KEY = "weekly_tracker_labels_b23";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b23";
+const USER_NAME_KEY = "weekly_tracker_username_b23";
+const TOUR_KEY = "weekly_tracker_tour_b23";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -163,6 +163,26 @@ function fmtMinutes(ms) {
   return min >= 60 ? (min / 60).toFixed(1) + "h" : Math.round(min) + "m";
 }
 
+// Isolated Ticking Clock Component to Prevent Full-App Re-renders
+function SystemClock() {
+  const [time, setTime] = useState(new Date());
+  const [blink, setBlink] = useState(true);
+  useEffect(() => {
+    const t = setInterval(() => { setTime(new Date()); setBlink(b => !b); }, 1000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="absolute top-4 right-4 sm:right-8 bg-slate-900 border border-slate-800 rounded px-3 py-1 font-mono text-xs text-teal-400 tracking-widest shadow-lg flex items-center gap-2">
+      <span className="text-teal-400 font-bold">🕒</span>
+      {String(time.getHours()).padStart(2, "0")}
+      <span style={{ opacity: blink ? 1 : 0.2 }}>:</span>
+      {String(time.getMinutes()).padStart(2, "0")}
+      <span style={{ opacity: blink ? 1 : 0.2 }}>:</span>
+      {String(time.getSeconds()).padStart(2, "0")}
+    </div>
+  );
+}
+
 function ModalOverlay({ children, zIndex = "z-50" }) {
   return <div className={`fixed inset-0 ${zIndex} flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm`}>{children}</div>;
 }
@@ -181,9 +201,9 @@ function ConfirmModal({ title, message, onConfirm, onCancel, confirmText = "YES"
   );
 }
 function Confetti() {
-  const pieces = useMemo(() => Array.from({ length: 80 }, (_, i) => {
+  const pieces = useMemo(() => Array.from({ length: 40 }, (_, i) => {
     const colors = [ACCENT.teal, ACCENT.amber, ACCENT.rose, "#ffffff"];
-    return { id: i, left: Math.random() * 100, delay: Math.random() * 0.8, duration: 2 + Math.random() * 2, size: 5 + Math.random() * 8, color: colors[i % colors.length], rotate: Math.random() * 360 };
+    return { id: i, left: Math.random() * 100, delay: Math.random() * 0.5, duration: 2 + Math.random() * 1.5, size: 5 + Math.random() * 6, color: colors[i % colors.length], rotate: Math.random() * 360 };
   }), []);
   return (
     <div className="pointer-events-none fixed inset-0 overflow-hidden z-[100]">
@@ -634,19 +654,6 @@ function CommandWeeklyTaskTracker() {
 
   const [sortMode, setSortMode] = useState("default");
   const [viewMode, setViewMode] = useState("list");
-
-  const [systemClock, setSystemClock] = useState(new Date());
-  const [tickToggle, setTickToggle] = useState(true);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const current = new Date();
-      setSystemClock(current);
-      setNowTs(current.getTime());
-      setTickToggle((t) => !t);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Main Authentication and Root Snapshot Listener
   useEffect(() => {
@@ -1643,15 +1650,8 @@ function CommandWeeklyTaskTracker() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 px-4 py-8 sm:px-8 flex flex-col relative">
-      {/* 24-Hour Ticking System Clock in top right corner */}
-      <div className="absolute top-4 right-4 sm:right-8 bg-slate-900 border border-slate-800 rounded px-3 py-1 font-mono text-xs text-teal-400 tracking-widest shadow-lg flex items-center gap-2">
-        <span className="text-teal-400 font-bold">🕒</span>
-        {String(systemClock.getHours()).padStart(2, "0")}
-        <span style={{ opacity: tickToggle ? 1 : 0.2 }}>:</span>
-        {String(systemClock.getMinutes()).padStart(2, "0")}
-        <span style={{ opacity: tickToggle ? 1 : 0.2 }}>:</span>
-        {String(systemClock.getSeconds()).padStart(2, "0")}
-      </div>
+      {/* 24-Hour Ticking System Clock */}
+      <SystemClock />
 
       {celebrate && <Confetti />}
       {renderModals()}
@@ -1659,7 +1659,7 @@ function CommandWeeklyTaskTracker() {
       <div className="max-w-4xl mx-auto w-full flex-1">
         <header className="mb-8 flex justify-between items-end">
           <div>
-              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v5.0]</p>
+              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v5.1]</p>
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
               {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
           </div>
