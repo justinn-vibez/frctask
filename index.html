@@ -64,11 +64,11 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList,
 } = Recharts;
 
-const TASKS_KEY = "weekly_tracker_tasks_b20";
-const LABELS_KEY = "weekly_tracker_labels_b20";
-const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b20";
-const USER_NAME_KEY = "weekly_tracker_username_b20";
-const TOUR_KEY = "weekly_tracker_tour_b20";
+const TASKS_KEY = "weekly_tracker_tasks_b21";
+const LABELS_KEY = "weekly_tracker_labels_b21";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b21";
+const USER_NAME_KEY = "weekly_tracker_username_b21";
+const TOUR_KEY = "weekly_tracker_tour_b21";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -802,6 +802,45 @@ function CommandWeeklyTaskTracker() {
           return newT;
        });
        lsSet(TASKS_KEY, updated);
+       return updated;
+    });
+  };
+
+  // Supervisor actions for inspected sailor tasks
+  const toggleSailorTimer = (id) => {
+    setSailorTasks(prev => {
+       const updated = prev.map(t => {
+          if (t.id !== id) return t;
+          const newT = t.runningSince ? { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null } : { ...t, runningSince: new Date().toISOString() };
+          updateTaskInDb(newT, selectedSailorUid);
+          return newT;
+       });
+       return updated;
+    });
+  };
+
+  const finishSailorTask = (id) => {
+    const completedTime = new Date().toISOString();
+    setSailorTasks(prev => {
+        const updated = prev.map(t => {
+            if (t.id !== id) return t;
+            const newT = { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null, done: true, completedAt: completedTime };
+            updateTaskInDb(newT, selectedSailorUid);
+            return newT;
+        });
+        return updated;
+    });
+  };
+
+  const saveSailorNote = (id, text) => {
+    const trimmed = text.trim();
+    setSailorTasks(prev => {
+       const updated = prev.map(t => {
+           if (t.id !== id) return t;
+           const newT = { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString() } : null };
+           updateTaskInDb(newT, selectedSailorUid);
+           return newT;
+       });
        return updated;
     });
   };
@@ -1603,7 +1642,7 @@ function CommandWeeklyTaskTracker() {
       <div className="max-w-4xl mx-auto w-full flex-1">
         <header className="mb-8 flex justify-between items-end">
           <div>
-              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v4.5]</p>
+              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v5.0]</p>
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
               {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
           </div>
@@ -1626,11 +1665,14 @@ function CommandWeeklyTaskTracker() {
         {/* ADMIN PANEL / SUPERVISOR OVERSIGHT TAB */}
         {tab === "oversight" && (userRole === "supervisor" || userRole === "admin") && (
           <div className="space-y-6">
-            {/* Admin Header with Uniform, Centered Action Buttons */}
+            {/* Admin Header with Multi-line Centered Title & Untouched Buttons */}
             <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col md:flex-row justify-between items-center gap-4">
               <div className="text-center md:text-left">
                 <h2 className="font-mono text-xs tracking-widest text-teal-400 mb-1">COMMAND MASTER ADMIN PANEL</h2>
-                <p className="text-xl font-bold text-white">Work Center & Division Oversight</p>
+                <p className="text-xl font-bold text-white leading-snug">
+                  Work Center &<br />
+                  Division Oversight
+                </p>
               </div>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-2 w-full md:w-auto">
                 <button onClick={() => setShowProvisionModal(true)} className="h-10 font-mono text-xs font-bold tracking-widest rounded transition-transform active:scale-95 flex items-center justify-center w-full sm:w-48" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
@@ -1699,13 +1741,14 @@ function CommandWeeklyTaskTracker() {
               )}
             </section>
 
+            {/* Interactive Sailor Task Management (Start, Pause, Finish, Notes on Behalf of User) */}
             <section className="space-y-3">
-              <h3 className="font-mono text-xs tracking-widest text-slate-400 mb-2">ACTIVE ASSIGNED TASKS</h3>
+              <h3 className="font-mono text-xs tracking-widest text-slate-400 mb-2">ACTIVE ASSIGNED TASKS (SUPERVISOR OVERRIDE)</h3>
               {sailorTasks.filter(t => !t.done).length === 0 ? (
                 <div className="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center text-slate-500 font-mono text-sm tracking-widest">NO ACTIVE TASKS PENDING FOR THIS SAILOR.</div>
               ) : (
                 sailorTasks.filter(t => !t.done).map((t) => {
-                  const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label), ms = elapsedMs(t, nowTs);
+                  const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label), running = !!t.runningSince, ms = elapsedMs(t, nowTs);
                   return (
                     <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-lg p-4" style={{ borderLeft: "4px solid " + pm.color }}>
                       <div className="flex items-start gap-3">
@@ -1716,15 +1759,15 @@ function CommandWeeklyTaskTracker() {
                             <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a" }}>{pm.label}</span>
                             {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
                           </div>
-                          <div className="flex items-center gap-3 mt-3 font-mono text-xs text-slate-400">
-                            <span>⏱ Time Tracked: {fmtDuration(ms)}</span>
-                            {t.note && t.note.updatedAt && <span>· Last Update: {fmtStamp(t.note.updatedAt)}</span>}
+                          
+                          {/* Interactive Supervisor Timer & Action Controls */}
+                          <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
+                            <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
+                            <button onClick={() => toggleSailorTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={running ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{running ? "❚❚ PAUSE" : ms > 0 ? "▶ RESUME" : "▶ START"}</button>
+                            <button onClick={() => finishSailorTask(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓ FINISH</button>
                           </div>
-                          {t.note && t.note.text && (
-                            <div className="mt-2 bg-slate-950 border border-slate-800 rounded p-2.5 text-xs text-slate-300 font-mono">
-                              <span className="text-teal-400 font-bold">NOTE: </span>{t.note.text}
-                            </div>
-                          )}
+
+                          <TaskNotes task={t} onSaveNote={saveSailorNote} />
                         </div>
                       </div>
                     </div>
