@@ -412,20 +412,6 @@ const initializeUserProfile = async (user, officialName = "", workCenter = "040"
   }
 };
 
-const updateTaskInDb = async (taskObj, targetUid) => {
-  if (window.db && window.dbOperations) {
-    const { doc, setDoc } = window.dbOperations;
-    const uid = targetUid || (window.auth?.currentUser?.uid);
-    if (!uid) return;
-    try { 
-      // ALWAYS write to the target user's local subcollection to bypass root blocks
-      await setDoc(doc(window.db, "users", uid, "tasks", String(taskObj.id)), taskObj); 
-    } catch(e) {
-      console.error("Database update error:", e);
-    }
-  }
-};
-
 function CommandWeeklyTaskTracker() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -507,7 +493,7 @@ function CommandWeeklyTaskTracker() {
       const cred = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, newProvPass);
       const newUid = cred.user.uid;
 
-      const { doc, setDoc } = window.dbOperations;
+      const { doc, setDoc, collection, getDocs } = window.dbOperations;
       await setDoc(doc(window.db, "users", newUid), {
         uid: newUid,
         email: cleanEmail,
@@ -521,12 +507,9 @@ function CommandWeeklyTaskTracker() {
       setProvSuccess({ type: "success", text: `Successfully created user [${newProvUser}] under WC [${newProvWC}].` });
       setNewProvUser(""); setNewProvPass(""); setNewProvName("");
 
-      if(window.db && window.dbOperations) {
-        const { collection, getDocs } = window.dbOperations;
-        const usersSnap = await getDocs(collection(window.db, "users"));
-        const sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setShopSailors(sailors);
-      }
+      const usersSnap = await getDocs(collection(window.db, "users"));
+      const sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setShopSailors(sailors);
     } catch (err) {
       setProvSuccess({ type: "error", text: err.message.replace("Firebase: ", "") });
     }
@@ -590,8 +573,6 @@ function CommandWeeklyTaskTracker() {
   };
 
   const [showTour, setShowTour] = useState(false);
-
-  const [tasks, setTasks] = useState([]);
   const [labels, setLabels] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
@@ -633,18 +614,17 @@ function CommandWeeklyTaskTracker() {
     return () => clearInterval(timer);
   }, []);
 
-  // Main Authentication and DB Setup Listener
+  // Main Authentication and Root Snapshot Listener
   useEffect(() => {
     let unsubscribeAuth = null;
     let unsubscribeTasks = null;
 
     if (window.auth && window.authOperations && window.db && window.dbOperations) {
       const { onAuthStateChanged } = window.authOperations;
-      const { collection, onSnapshot, doc, getDoc, getDocs } = window.dbOperations;
+      const { collection, onSnapshot, doc, getDoc, getDocs } = window.dbOperations; 
 
       unsubscribeAuth = onAuthStateChanged(window.auth, async (user) => {
         if (user) {
-          
           try {
             await initializeUserProfile(user);
             const userSnap = await getDoc(doc(window.db, "users", user.uid));
@@ -661,11 +641,12 @@ function CommandWeeklyTaskTracker() {
             const usersSnap = await getDocs(collection(window.db, "users"));
             let sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
             setShopSailors(sailors);
+            
             if (sailors.length > 0 && !selectedSailorUid) {
               setSelectedSailorUid(prev => prev || (sailors[0].uid || sailors[0].id));
             }
           } catch(e) {
-            console.error("Initialization error:", e);
+            console.error("Error during initial fetch:", e);
           }
 
           const storedName = lsGet(USER_NAME_KEY);
@@ -692,7 +673,6 @@ function CommandWeeklyTaskTracker() {
             console.error("Error loading labels:", e);
           }
 
-          // Restore Path to users/{uid}/tasks to fix Security Rule Blocking & Lost Tasks
           if (unsubscribeTasks) unsubscribeTasks();
           unsubscribeTasks = onSnapshot(collection(window.db, "users", user.uid, "tasks"), (snapshot) => {
             const cloudTasks = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
@@ -710,7 +690,7 @@ function CommandWeeklyTaskTracker() {
           setTasks([]);
           if (unsubscribeTasks) unsubscribeTasks();
         }
-        setLoaded(true); // Exits the Loading Screen
+        setLoaded(true); 
       });
 
       return () => {
@@ -734,7 +714,7 @@ function CommandWeeklyTaskTracker() {
     return shopSailors.filter(s => (s.workCenter || "040") === selectedWcFilter);
   }, [shopSailors, selectedWcFilter]);
 
-  // Admin Oversight Task Listener
+  // Secondary Listener: Exclusively for Oversight Dashboard
   useEffect(() => {
     if (tab !== "oversight" || !selectedSailorUid || !window.db || !window.dbOperations) return;
     const { collection, onSnapshot } = window.dbOperations;
@@ -774,6 +754,21 @@ function CommandWeeklyTaskTracker() {
     prevPct.current = pct;
   }, [pct, loaded, weekTotal]);
 
+  const updateTaskInDb = async (taskObj, targetUid) => {
+    if (window.db && window.dbOperations) {
+      const { doc, setDoc } = window.dbOperations;
+      const uid = targetUid || (window.auth?.currentUser?.uid);
+      if (!uid) return;
+      try { 
+        await setDoc(doc(window.db, "users", uid, "tasks", String(taskObj.id)), taskObj); 
+      } catch(e) {
+        setErrorAlert("Permission Denied: Firebase rules block writing to this user's account.");
+        setTimeout(() => setErrorAlert(null), 6000);
+        console.error("Database update error:", e);
+      }
+    }
+  };
+
   const addTask = async () => {
     setAttemptedSubmit(true);
     if (!newText.trim() || !newDue) {
@@ -790,11 +785,16 @@ function CommandWeeklyTaskTracker() {
         timeMs: 0, runningSince: null, assignedTo: targetUid
     };
     
-    updateTaskInDb(newTask, targetUid);
+    await updateTaskInDb(newTask, targetUid);
 
-    // Only update my local list if I assigned it to myself
     if (targetUid === currentUid) {
       setTasks(prev => { const next = [...prev, newTask]; lsSet(TASKS_KEY, next); return next; });
+    } else {
+      setErrorAlert("success: Task delegated to sailor.");
+      setTimeout(() => setErrorAlert(null), 4000);
+      if (tab === "oversight" && selectedSailorUid === targetUid) {
+         setSailorTasks(prev => [...prev, newTask]);
+      }
     }
 
     setNewText(""); setNewDue(""); setNewPriority("medium"); setNewNote(""); setAssignedWorkerUid(""); setAttemptedSubmit(false);
@@ -896,6 +896,8 @@ function CommandWeeklyTaskTracker() {
         }
         await setDoc(doc(window.db, "users", newAssignedTo, "tasks", String(updatedTask.id)), updatedTask);
       } catch (e) {
+        setErrorAlert("Permission Denied: Firebase rules block reassigning tasks to this user.");
+        setTimeout(() => setErrorAlert(null), 6000);
         console.error("Error updating task assignment:", e);
       }
     }
@@ -1539,7 +1541,7 @@ function CommandWeeklyTaskTracker() {
         <div className="min-h-screen bg-slate-950 text-slate-200 p-8 flex flex-col h-screen">
           {celebrate && <Confetti />}
           {errorAlert && (
-          <div className="fixed top-8 right-8 z-[80] bg-rose-600 text-white px-6 py-4 rounded-lg shadow-2xl animate-pulse font-mono text-sm tracking-widest border border-rose-400">
+          <div className={`fixed top-8 right-8 z-[80] text-white px-6 py-4 rounded-lg shadow-2xl animate-pulse font-mono text-sm tracking-widest border ${errorAlert.includes("success") ? "bg-teal-900 border-teal-400" : "bg-rose-600 border-rose-400"}`}>
               {errorAlert}
           </div>
       )}
@@ -1607,7 +1609,7 @@ function CommandWeeklyTaskTracker() {
       <div className="max-w-4xl mx-auto w-full flex-1">
         <header className="mb-8 flex justify-between items-end">
           <div>
-              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v4.0]</p>
+              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v4.1]</p>
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
               {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
           </div>
@@ -1776,6 +1778,12 @@ function CommandWeeklyTaskTracker() {
         {/* ACTIVE TASKS TAB */}
         {tab === "tasks" && (
           <React.Fragment>
+            {errorAlert && (
+              <div className={`mb-4 px-6 py-4 rounded-lg shadow-xl font-mono text-sm tracking-widest border flex items-center justify-between ${errorAlert.includes("success") ? "bg-teal-950/80 border-teal-500 text-teal-300" : "bg-rose-950/80 border-rose-500 text-rose-300 animate-pulse"}`}>
+                  <span>{errorAlert}</span>
+                  <button onClick={() => setErrorAlert(null)} className="text-lg opacity-70 hover:opacity-100">&times;</button>
+              </div>
+            )}
             <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4 flex items-center gap-6">
               <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} size={110} stroke={10} />
               <div className="flex-1">
@@ -1865,7 +1873,7 @@ function CommandWeeklyTaskTracker() {
                             {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
                             <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
                             {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
-                            {t.assignedTo && (
+                            {t.assignedTo && t.assignedTo !== window.auth?.currentUser?.uid && (
                               <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded bg-teal-950 text-teal-300 border border-teal-800">👤 {getWorkerName(t.assignedTo)}</span>
                             )}
                           </div>
