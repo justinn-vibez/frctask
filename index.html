@@ -64,11 +64,11 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList,
 } = Recharts;
 
-const TASKS_KEY = "weekly_tracker_tasks_b16";
-const LABELS_KEY = "weekly_tracker_labels_b16";
-const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b16";
-const USER_NAME_KEY = "weekly_tracker_username_b16";
-const TOUR_KEY = "weekly_tracker_tour_b16";
+const TASKS_KEY = "weekly_tracker_tasks_b20";
+const LABELS_KEY = "weekly_tracker_labels_b20";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b20";
+const USER_NAME_KEY = "weekly_tracker_username_b20";
+const TOUR_KEY = "weekly_tracker_tour_b20";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -412,6 +412,19 @@ const initializeUserProfile = async (user, officialName = "", workCenter = "040"
   }
 };
 
+const updateTaskInDb = async (taskObj, targetUid) => {
+  if (window.db && window.dbOperations) {
+    const { doc, setDoc } = window.dbOperations;
+    const uid = targetUid || (window.auth?.currentUser?.uid);
+    if (!uid) return;
+    try { 
+      await setDoc(doc(window.db, "users", uid, "tasks", String(taskObj.id)), taskObj); 
+    } catch(e) {
+      console.error("Database update error:", e);
+    }
+  }
+};
+
 function CommandWeeklyTaskTracker() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -490,6 +503,7 @@ function CommandWeeklyTaskTracker() {
       const secondaryApp = window.initializeApp(window.firebaseConfig, secondaryAppName);
       const secondaryAuth = window.getAuth(secondaryApp);
       
+      const { createUserWithEmailAndPassword } = window.authOperations;
       const cred = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, newProvPass);
       const newUid = cred.user.uid;
 
@@ -503,7 +517,9 @@ function CommandWeeklyTaskTracker() {
         createdAt: new Date().toISOString()
       });
 
+      const { signOut } = window.authOperations;
       await signOut(secondaryAuth);
+      
       setProvSuccess({ type: "success", text: `Successfully created user [${newProvUser}] under WC [${newProvWC}].` });
       setNewProvUser(""); setNewProvPass(""); setNewProvName("");
 
@@ -573,6 +589,7 @@ function CommandWeeklyTaskTracker() {
   };
 
   const [showTour, setShowTour] = useState(false);
+  const [tasks, setTasks] = useState([]);
   const [labels, setLabels] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
@@ -618,6 +635,8 @@ function CommandWeeklyTaskTracker() {
   useEffect(() => {
     let unsubscribeAuth = null;
     let unsubscribeTasks = null;
+    
+    const safetyTimer = setTimeout(() => { setLoaded(true); }, 2500);
 
     if (window.auth && window.authOperations && window.db && window.dbOperations) {
       const { onAuthStateChanged } = window.authOperations;
@@ -642,7 +661,7 @@ function CommandWeeklyTaskTracker() {
             let sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
             setShopSailors(sailors);
             
-            if (sailors.length > 0 && !selectedSailorUid) {
+            if (sailors.length > 0) {
               setSelectedSailorUid(prev => prev || (sailors[0].uid || sailors[0].id));
             }
           } catch(e) {
@@ -690,22 +709,24 @@ function CommandWeeklyTaskTracker() {
           setTasks([]);
           if (unsubscribeTasks) unsubscribeTasks();
         }
+        clearTimeout(safetyTimer);
         setLoaded(true); 
       });
 
       return () => {
+        clearTimeout(safetyTimer);
         if (unsubscribeAuth) unsubscribeAuth();
         if (unsubscribeTasks) unsubscribeTasks();
       };
     } else {
-      setLoaded(true);
       const storedLabels = lsGet(LABELS_KEY);
       const activeLabels = Array.isArray(storedLabels) ? storedLabels : [];
       setLabels(activeLabels);
       if (activeLabels.length > 0) setNewLabel(activeLabels[0].name);
-
       const storedTasks = lsGet(TASKS_KEY);
       if (Array.isArray(storedTasks)) setTasks(storedTasks);
+      clearTimeout(safetyTimer);
+      setLoaded(true);
     }
   }, []);
 
@@ -714,7 +735,7 @@ function CommandWeeklyTaskTracker() {
     return shopSailors.filter(s => (s.workCenter || "040") === selectedWcFilter);
   }, [shopSailors, selectedWcFilter]);
 
-  // Secondary Listener: Exclusively for Oversight Dashboard
+  // Admin Oversight Task Listener
   useEffect(() => {
     if (tab !== "oversight" || !selectedSailorUid || !window.db || !window.dbOperations) return;
     const { collection, onSnapshot } = window.dbOperations;
@@ -724,19 +745,6 @@ function CommandWeeklyTaskTracker() {
     });
     return () => unsub();
   }, [tab, selectedSailorUid]);
-
-  const completeTour = () => {
-      lsSet(TOUR_KEY, true);
-      setShowTour(false);
-  }
-
-  const saveLabelsToCloud = (updatedLabels) => {
-    if (window.db && window.dbOperations && window.auth && window.auth.currentUser) {
-      const { doc, setDoc } = window.dbOperations;
-      const uid = window.auth.currentUser.uid;
-      setDoc(doc(window.db, "users", uid, "config", "labels"), { list: updatedLabels }).catch(e => console.error("Error saving labels:", e));
-    }
-  };
 
   const weekTasks = tasks.filter(inActiveWeek);
   const weekTotal = weekTasks.length, weekCompleted = weekTasks.filter((t) => t.done).length;
@@ -753,21 +761,6 @@ function CommandWeeklyTaskTracker() {
     }
     prevPct.current = pct;
   }, [pct, loaded, weekTotal]);
-
-  const updateTaskInDb = async (taskObj, targetUid) => {
-    if (window.db && window.dbOperations) {
-      const { doc, setDoc } = window.dbOperations;
-      const uid = targetUid || (window.auth?.currentUser?.uid);
-      if (!uid) return;
-      try { 
-        await setDoc(doc(window.db, "users", uid, "tasks", String(taskObj.id)), taskObj); 
-      } catch(e) {
-        setErrorAlert("Permission Denied: Firebase rules block writing to this user's account.");
-        setTimeout(() => setErrorAlert(null), 6000);
-        console.error("Database update error:", e);
-      }
-    }
-  };
 
   const addTask = async () => {
     setAttemptedSubmit(true);
@@ -790,7 +783,7 @@ function CommandWeeklyTaskTracker() {
     if (targetUid === currentUid) {
       setTasks(prev => { const next = [...prev, newTask]; lsSet(TASKS_KEY, next); return next; });
     } else {
-      setErrorAlert("success: Task delegated to sailor.");
+      setErrorAlert("success: Task successfully delegated to sailor.");
       setTimeout(() => setErrorAlert(null), 4000);
       if (tab === "oversight" && selectedSailorUid === targetUid) {
          setSailorTasks(prev => [...prev, newTask]);
@@ -899,6 +892,7 @@ function CommandWeeklyTaskTracker() {
         setErrorAlert("Permission Denied: Firebase rules block reassigning tasks to this user.");
         setTimeout(() => setErrorAlert(null), 6000);
         console.error("Error updating task assignment:", e);
+        return;
       }
     }
 
@@ -1609,7 +1603,7 @@ function CommandWeeklyTaskTracker() {
       <div className="max-w-4xl mx-auto w-full flex-1">
         <header className="mb-8 flex justify-between items-end">
           <div>
-              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v4.1]</p>
+              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v4.5]</p>
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
               {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
           </div>
