@@ -64,11 +64,11 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList, PieChart, Pie
 } = Recharts;
 
-const TASKS_KEY = "weekly_tracker_tasks_b26";
-const LABELS_KEY = "weekly_tracker_labels_b26";
-const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b26";
-const USER_NAME_KEY = "weekly_tracker_username_b26";
-const TOUR_KEY = "weekly_tracker_tour_b26";
+const TASKS_KEY = "weekly_tracker_tasks_b27";
+const LABELS_KEY = "weekly_tracker_labels_b27";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b27";
+const USER_NAME_KEY = "weekly_tracker_username_b27";
+const TOUR_KEY = "weekly_tracker_tour_b27";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -673,7 +673,7 @@ function CommandWeeklyTaskTracker() {
   const [sortMode, setSortMode] = useState("default");
   const [viewMode, setViewMode] = useState("list");
 
-  // Main Authentication and Root Snapshot Listener
+  // Main Authentication and Root Snapshot Listener with Strict Deduplication
   useEffect(() => {
     let unsubscribeAuth = null;
     let unsubscribeTasks = null;
@@ -737,32 +737,32 @@ function CommandWeeklyTaskTracker() {
             console.error("Error loading labels:", e);
           }
 
+          // Strict Deduplication Map across personal and pool tasks
+          const mergeTasks = (personal, pool) => {
+            const map = new Map();
+            [...personal, ...pool].forEach(t => {
+              if (t && t.id) map.set(t.id, t);
+            });
+            const merged = Array.from(map.values());
+            lsSet(TASKS_KEY, merged);
+            return merged;
+          };
+
+          let latestPersonal = [];
+          let latestPool = [];
+
           if (unsubscribeTasks) unsubscribeTasks();
           unsubscribeTasks = onSnapshot(collection(window.db, "users", user.uid, "tasks"), (snapshot) => {
-            const personalTasks = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
-            setTasks(prev => {
-              const poolItems = prev.filter(t => t.isPool);
-              const map = new Map();
-              [...personalTasks, ...poolItems].forEach(t => map.set(t.id, t));
-              const merged = Array.from(map.values());
-              lsSet(TASKS_KEY, merged);
-              return merged;
-            });
+            latestPersonal = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+            setTasks(prev => mergeTasks(latestPersonal, latestPool));
           }, (error) => {
             console.error("Firestore personal task sync error:", error);
           });
 
           if (unsubscribePoolTasks) unsubscribePoolTasks();
           unsubscribePoolTasks = onSnapshot(collection(window.db, "workcenters", currentWc, "poolTasks"), (snapshot) => {
-            const poolTasks = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data(), isPool: true }));
-            setTasks(prev => {
-              const personalItems = prev.filter(t => !t.isPool);
-              const map = new Map();
-              [...personalItems, ...poolTasks].forEach(t => map.set(t.id, t));
-              const merged = Array.from(map.values());
-              lsSet(TASKS_KEY, merged);
-              return merged;
-            });
+            latestPool = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data(), isPool: true }));
+            setTasks(prev => mergeTasks(latestPersonal, latestPool));
           }, (err) => {
             console.log("Pool listener notice:", err.message);
           });
@@ -882,12 +882,16 @@ function CommandWeeklyTaskTracker() {
     }
 
     if (targetUid === currentUid || isPoolTask) {
-      setTasks(prev => { const next = [...prev, newTask]; lsSet(TASKS_KEY, next); return next; });
+      setTasks(prev => { 
+        const next = [...prev.filter(t => t.id !== newTask.id), newTask]; 
+        lsSet(TASKS_KEY, next); 
+        return next; 
+      });
     } else {
       setErrorAlert("success: Task successfully delegated to sailor.");
       setTimeout(() => setErrorAlert(null), 4000);
       if (tab === "oversight" && selectedSailorUid === targetUid) {
-         setSailorTasks(prev => [...prev, newTask]);
+         setSailorTasks(prev => [...prev.filter(t => t.id !== newTask.id), newTask]);
       }
     }
 
@@ -1162,7 +1166,20 @@ function CommandWeeklyTaskTracker() {
     setSailorTasks(prev => {
        const updated = prev.map(t => {
           if (t.id !== id) return t;
-          const newT = t.runningSince ? { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null } : { ...t, runningSince: new Date().toISOString() };
+          const runningWorkers = { ...(t.runningWorkers || {}) };
+          const contributors = { ...(t.contributors || {}) };
+          const now = Date.now();
+
+          if (runningWorkers[selectedSailorUid]) {
+            const startMs = new Date(runningWorkers[selectedSailorUid]).getTime();
+            const elapsed = Math.max(0, now - startMs);
+            contributors[selectedSailorUid] = (contributors[selectedSailorUid] || 0) + elapsed;
+            delete runningWorkers[selectedSailorUid];
+          } else {
+            runningWorkers[selectedSailorUid] = new Date().toISOString();
+          }
+
+          const newT = { ...t, contributors, runningWorkers };
           updateTaskInDb(newT, selectedSailorUid);
           return newT;
        });
@@ -1175,7 +1192,15 @@ function CommandWeeklyTaskTracker() {
     setSailorTasks(prev => {
         const updated = prev.map(t => {
             if (t.id !== id) return t;
-            const newT = { ...t, timeMs: elapsedMs(t, nowTs), runningSince: null, done: true, completedAt: completedTime };
+            const runningWorkers = { ...(t.runningWorkers || {}) };
+            const contributors = { ...(t.contributors || {}) };
+            const now = Date.now();
+            Object.keys(runningWorkers).forEach(u => {
+               const startMs = new Date(runningWorkers[u]).getTime();
+               contributors[u] = (contributors[u] || 0) + Math.max(0, now - startMs);
+            });
+
+            const newT = { ...t, runningWorkers: {}, contributors, done: true, completedAt: completedTime };
             updateTaskInDb(newT, selectedSailorUid);
             return newT;
         });
@@ -1196,7 +1221,7 @@ function CommandWeeklyTaskTracker() {
     });
   };
 
-  // Aggregate Man-Hour Contributor Breakdown across all tasks for Analytics Pie/Bar Chart
+  // Aggregate Man-Hour Distribution Breakdown across all tasks for Analytics Pie/Bar Chart
   const manHourDistribution = useMemo(() => {
     const contributorMap = {};
     tasks.forEach(t => {
@@ -1214,6 +1239,23 @@ function CommandWeeklyTaskTracker() {
     });
     return Object.keys(contributorMap).map(name => ({ name, hours: contributorMap[name] }));
   }, [tasks, shopSailors, nowTs, userName]);
+
+  // Specific Sailor's Man-Hour Distribution for Admin Panel Inspector
+  const sailorManHourDistribution = useMemo(() => {
+    if (!selectedSailorUid) return [];
+    const contributorMap = {};
+    sailorTasks.forEach(t => {
+      if (t.contributors && t.contributors[selectedSailorUid]) {
+        const sailor = shopSailors.find(s => (s.uid || s.id) === selectedSailorUid);
+        const name = sailor ? (sailor.displayName || sailor.email) : "Sailor";
+        const totalMs = (t.contributors[selectedSailorUid] || 0) + (t.runningWorkers && t.runningWorkers[selectedSailorUid] ? (nowTs - new Date(t.runningWorkers[selectedSailorUid]).getTime()) : 0);
+        const hours = +(totalMs / 3600000).toFixed(2);
+        const label = t.text.length > 18 ? t.text.slice(0, 18) + "…" : t.text;
+        contributorMap[label] = (contributorMap[label] || 0) + hours;
+      }
+    });
+    return Object.keys(contributorMap).map(name => ({ name, hours: contributorMap[name] }));
+  }, [sailorTasks, selectedSailorUid, shopSailors, nowTs]);
 
   const analytics = useMemo(() => {
     const done = tasks.filter((t) => t.done && t.completedAt);
@@ -1812,7 +1854,7 @@ function CommandWeeklyTaskTracker() {
       <div className="max-w-4xl mx-auto w-full flex-1">
         <header className="mb-8 flex justify-between items-end">
           <div>
-              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v6.0]</p>
+              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v7.0]</p>
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
               {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
           </div>
@@ -1863,7 +1905,7 @@ function CommandWeeklyTaskTracker() {
                 <div className="flex flex-wrap items-center gap-3">
                   <div>
                     <h3 className="font-mono text-xs tracking-widest text-teal-400 mb-1">WORK CENTER MONITOR</h3>
-                    <p className="text-lg font-bold text-white">Inspect Personnel Productivity</p>
+                    <p className="text-lg font-bold text-white">Inspect Personnel Productivity & Analytics</p>
                   </div>
                   <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded px-3 py-1.5">
                     <span className="font-mono text-[10px] text-slate-400 tracking-widest">WC FILTER:</span>
@@ -1899,13 +1941,33 @@ function CommandWeeklyTaskTracker() {
               </div>
 
               {selectedSailorObj && (
-                <div className="flex flex-col md:flex-row items-center gap-6 bg-slate-950 border border-slate-800 rounded-lg p-6">
-                  <ProgressRing pct={oversightPct} completed={oversightCompleted} total={oversightTotal} size={130} stroke={12} />
-                  <div className="flex-1 text-center md:text-left">
-                    <p className="font-mono text-xs text-slate-500 tracking-widest mb-1">INSPECTING WORKER</p>
-                    <h3 className="text-2xl font-bold text-white mb-1">{selectedSailorObj.displayName || selectedSailorObj.email}</h3>
-                    <p className="font-mono text-xs text-teal-400 tracking-wider mb-3">WORK CENTER: {selectedSailorObj.workCenter || "040"} · ROLE: {selectedSailorObj.role.toUpperCase()}</p>
-                    <p className="text-xs text-slate-400">{oversightTotal === 0 ? "No active tasks assigned for this week." : `${oversightCompleted} of ${oversightTotal} tasks completed (${oversightPct}%).`}</p>
+                <div className="space-y-6">
+                  <div className="flex flex-col md:flex-row items-center gap-6 bg-slate-950 border border-slate-800 rounded-lg p-6">
+                    <ProgressRing pct={oversightPct} completed={oversightCompleted} total={oversightTotal} size={130} stroke={12} />
+                    <div className="flex-1 text-center md:text-left">
+                      <p className="font-mono text-xs text-slate-500 tracking-widest mb-1">INSPECTING WORKER</p>
+                      <h3 className="text-2xl font-bold text-white mb-1">{selectedSailorObj.displayName || selectedSailorObj.email}</h3>
+                      <p className="font-mono text-xs text-teal-400 tracking-wider mb-3">WORK CENTER: {selectedSailorObj.workCenter || "040"} · ROLE: {selectedSailorObj.role.toUpperCase()}</p>
+                      <p className="text-xs text-slate-400">{oversightTotal === 0 ? "No active tasks assigned for this week." : `${oversightCompleted} of ${oversightTotal} tasks completed (${oversightPct}%).`}</p>
+                    </div>
+                  </div>
+
+                  {/* Individual Sailor Man-Hour Distribution Pie Chart in Admin Panel */}
+                  <div className="bg-slate-950 border border-slate-800 rounded-lg p-4">
+                    <h4 className="font-mono text-xs tracking-widest text-teal-400 mb-2">INDIVIDUAL MAN-HOUR BREAKDOWN</h4>
+                    {sailorManHourDistribution.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={180}>
+                        <BarChart data={sailorManHourDistribution} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                          <XAxis dataKey="name" tick={axisTickLight} />
+                          <YAxis tick={axisTick} />
+                          <Tooltip contentStyle={chartTooltipStyle} formatter={(v) => [v + " hours", "Hours"]} />
+                          <Bar dataKey="hours" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="text-xs text-slate-500 font-mono text-center py-4">No clocked hours recorded for this sailor yet.</p>
+                    )}
                   </div>
                 </div>
               )}
@@ -2193,7 +2255,7 @@ function CommandWeeklyTaskTracker() {
           </React.Fragment>
         )}
 
-        {/* ANALYTICS TAB */}
+        {/* ANALYTICS TAB (RESTORING ALL ORIGINAL v1 CHARTS + MAN-HOUR PIE) */}
         {tab === "analytics" && (
           <React.Fragment>
             <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6 flex items-center gap-6">
@@ -2235,6 +2297,7 @@ function CommandWeeklyTaskTracker() {
                     )}
                   </ChartCard>
 
+                  {/* Restored Chart 1: Daily Throughput */}
                   <ChartCard wide title={"DAILY THROUGHPUT — LAST " + chartRange + " DAYS"} subtitle="Bars: tasks completed per day. Line: 7-day rolling average." action={<div className="flex gap-1">{[14, 30].map((r) => (<button key={r} onClick={() => setChartRange(r)} className="font-mono text-[10px] font-bold tracking-widest px-2.5 py-1 rounded" style={chartRange === r ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b", border: "1px solid #334155" }}>{r}D</button>))}</div>}>
                     <ResponsiveContainer width="100%" height={200}>
                       <ComposedChart data={analytics.byDay30.slice(-chartRange)} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
@@ -2245,6 +2308,76 @@ function CommandWeeklyTaskTracker() {
                         <Bar dataKey="count" name="Completed" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
                         <Line type="monotone" dataKey="avg7" name="7-day avg" stroke={ACCENT.amber} strokeWidth={2} dot={false} />
                       </ComposedChart>
+                    </ResponsiveContainer>
+                  </ChartCard>
+
+                  {/* Restored Chart 2: Lead Time per Task */}
+                  <ChartCard wide title="LEAD TIME PER TASK — LAST 12 DATED COMPLETIONS" subtitle="Days ahead of (teal) or behind (rose) the deadline.">
+                    {analytics.leadPerTask.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={Math.max(160, analytics.leadPerTask.length * 28 + 40)}>
+                        <BarChart data={analytics.leadPerTask} layout="vertical" margin={{ top: 4, right: 36, left: 8, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                          <XAxis type="number" tick={axisTick} />
+                          <YAxis type="category" dataKey="name" width={150} tick={axisTickLight} />
+                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v) => [v >= 0 ? v + "d early" : Math.abs(v) + "d late", "Lead"]} labelFormatter={(label, payload) => (payload && payload[0] && payload[0].payload.fullName) || label} />
+                          <ReferenceLine x={0} stroke="#475569" strokeWidth={1.5} />
+                          <Bar dataKey="lead" radius={[0, 3, 3, 0]}>
+                            {analytics.leadPerTask.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                            <LabelList dataKey="lead" position="right" formatter={(v) => (v > 0 ? "+" : "") + v + "d"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="text-xs text-slate-600 font-mono py-6 text-center">Complete a task that has a due date to populate this chart.</p>
+                    )}
+                  </ChartCard>
+
+                  {/* Restored Chart 3: Reliability by Priority */}
+                  <ChartCard title="RELIABILITY BY PRIORITY" subtitle="On-time (teal) vs late (rose) per tier.">
+                    <ResponsiveContainer width="100%" height={190}>
+                      <BarChart data={analytics.priorityReliability} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="label" tick={axisTick} />
+                        <YAxis allowDecimals={false} tick={axisTick} />
+                        <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
+                        <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
+                        <Bar dataKey="onTime" name="On time" stackId="r" fill={ACCENT.teal} />
+                        <Bar dataKey="late" name="Late" stackId="r" fill={ACCENT.rose} radius={[3, 3, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartCard>
+
+                  {/* Restored Chart 4: Completions by Day of Week */}
+                  <ChartCard title="COMPLETIONS BY DAY OF WEEK" subtitle="Busiest day highlighted amber.">
+                    <ResponsiveContainer width="100%" height={190}>
+                      <BarChart data={analytics.byWeekday} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="label" tick={axisTick} />
+                        <YAxis allowDecimals={false} tick={axisTick} />
+                        <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
+                        <Bar dataKey="count" name="Completed" radius={[3, 3, 0, 0]}>
+                          {analytics.byWeekday.map((d, i) => (
+                            <Cell key={i} fill={d.label === analytics.busiestDay.label && d.count > 0 ? ACCENT.amber : ACCENT.teal} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartCard>
+
+                  {/* Restored Chart 5: Completions by Time of Day */}
+                  <ChartCard wide title="COMPLETIONS BY TIME OF DAY" subtitle="3-hour blocks. Peak block highlighted amber.">
+                    <ResponsiveContainer width="100%" height={170}>
+                      <BarChart data={analytics.byHourBlock} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="label" tick={axisTick} />
+                        <YAxis allowDecimals={false} tick={axisTick} />
+                        <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
+                        <Bar dataKey="count" name="Completed" radius={[3, 3, 0, 0]}>
+                          {analytics.byHourBlock.map((d, i) => (
+                            <Cell key={i} fill={d.label === analytics.peakBlock.label && d.count > 0 ? ACCENT.amber : ACCENT.teal} />
+                          ))}
+                        </Bar>
+                      </BarChart>
                     </ResponsiveContainer>
                   </ChartCard>
                 </div>
