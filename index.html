@@ -64,11 +64,11 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList, PieChart, Pie
 } = Recharts;
 
-const TASKS_KEY = "weekly_tracker_tasks_b30";
-const LABELS_KEY = "weekly_tracker_labels_b30";
-const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b30";
-const USER_NAME_KEY = "weekly_tracker_username_b30";
-const TOUR_KEY = "weekly_tracker_tour_b30";
+const TASKS_KEY = "weekly_tracker_tasks_b31";
+const LABELS_KEY = "weekly_tracker_labels_b31";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b31";
+const USER_NAME_KEY = "weekly_tracker_username_b31";
+const TOUR_KEY = "weekly_tracker_tour_b31";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -151,12 +151,20 @@ function completedOnTime(task) {
   return task.completedAt && !task.due ? true : (lead === null ? null : lead >= 0);
 }
 
+// 12-Hour Max Shift Limit (43,200,000 ms) to prevent runaway/forgotten timers
+const MAX_SESSION_MS = 12 * 3600 * 1000;
+
 function userElapsedMs(task, uid, nowTs) {
   if (!task.contributors) task.contributors = {};
   const base = task.contributors[uid] || 0;
   if (!task.runningWorkers) task.runningWorkers = {};
   const runningSince = task.runningWorkers[uid];
-  return runningSince ? base + Math.max(0, (nowTs || Date.now()) - new Date(runningSince).getTime()) : base;
+  if (!runningSince) return base;
+  
+  const rawElapsed = Math.max(0, (nowTs || Date.now()) - new Date(runningSince).getTime());
+  // Auto-cap single continuous session at 12 hours
+  const activeElapsed = Math.min(rawElapsed, MAX_SESSION_MS);
+  return base + activeElapsed;
 }
 
 function totalTaskMs(task, nowTs) {
@@ -1069,6 +1077,19 @@ function CommandWeeklyTaskTracker() {
     setEditingTask(null);
   };
 
+  // Supervisor override: Force-stop / reset a runaway timer for a sailor task
+  const resetSailorTimer = (id) => {
+    setSailorTasks(prev => {
+       const updated = prev.map(t => {
+          if (t.id !== id) return t;
+          const newT = { ...t, runningSince: null, runningWorkers: {} };
+          updateTaskInDb(newT, selectedSailorUid);
+          return newT;
+       });
+       return updated;
+    });
+  };
+
   const priorityMeta = (id) => PRIORITIES.find((p) => p.id === id) || PRIORITIES[1];
   const getLabelColor = (name) => { const l = labels.find(x => x.name === name); return l ? l.color : "#64748b"; };
   const getWorkerName = (uid) => {
@@ -1228,7 +1249,7 @@ function CommandWeeklyTaskTracker() {
         Object.keys(t.contributors).forEach(u => {
           const sailor = shopSailors.find(s => (s.uid || s.id) === u);
           const name = sailor ? (sailor.displayName || sailor.email) : (u === window.auth?.currentUser?.uid ? userName : "Maintainer");
-          const totalMs = (t.contributors[u] || 0) + (t.runningWorkers && t.runningWorkers[u] ? (nowTs - new Date(t.runningWorkers[u]).getTime()) : 0);
+          const totalMs = (t.contributors[u] || 0) + (t.runningWorkers && t.runningWorkers[u] ? Math.min(nowTs - new Date(t.runningWorkers[u]).getTime(), MAX_SESSION_MS) : 0);
           const hours = +(totalMs / 3600000).toFixed(2);
           if (hours > 0) {
             contributorMap[name] = (contributorMap[name] || 0) + hours;
@@ -1247,7 +1268,7 @@ function CommandWeeklyTaskTracker() {
       if (t.contributors && t.contributors[selectedSailorUid]) {
         const sailor = shopSailors.find(s => (s.uid || s.id) === selectedSailorUid);
         const name = sailor ? (sailor.displayName || sailor.email) : "Sailor";
-        const totalMs = (t.contributors[selectedSailorUid] || 0) + (t.runningWorkers && t.runningWorkers[selectedSailorUid] ? (nowTs - new Date(t.runningWorkers[selectedSailorUid]).getTime()) : 0);
+        const totalMs = (t.contributors[selectedSailorUid] || 0) + (t.runningWorkers && t.runningWorkers[selectedSailorUid] ? Math.min(nowTs - new Date(t.runningWorkers[selectedSailorUid]).getTime(), MAX_SESSION_MS) : 0);
         const hours = +(totalMs / 3600000).toFixed(2);
         const label = t.text.length > 18 ? t.text.slice(0, 18) + "…" : t.text;
         contributorMap[label] = (contributorMap[label] || 0) + hours;
@@ -1871,7 +1892,7 @@ function CommandWeeklyTaskTracker() {
       <div className="max-w-4xl mx-auto w-full flex-1">
         <header className="mb-8 flex justify-between items-end">
           <div>
-              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v7.3]</p>
+              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v7.4]</p>
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
               {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
           </div>
@@ -1990,7 +2011,7 @@ function CommandWeeklyTaskTracker() {
               )}
             </section>
 
-            {/* Interactive Sailor Task Management */}
+            {/* Interactive Sailor Task Management with Force-Stop Override */}
             <section className="space-y-3">
               <h3 className="font-mono text-xs tracking-widest text-slate-400 mb-2">ACTIVE ASSIGNED TASKS (SUPERVISOR OVERRIDE)</h3>
               {sailorTasks.filter(t => !t.done).length === 0 ? (
@@ -2014,6 +2035,9 @@ function CommandWeeklyTaskTracker() {
                           <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
                             <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
                             <button onClick={() => toggleSailorTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={running ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{running ? "❚❚ PAUSE" : ms > 0 ? "▶ RESUME" : "▶ START"}</button>
+                            {running && (
+                              <button onClick={() => resetSailorTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded bg-rose-950 text-rose-300 border border-rose-800 hover:bg-rose-900">⏹ RESET TIMER</button>
+                            )}
                             <button onClick={() => finishSailorTask(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓ FINISH</button>
                           </div>
 
@@ -2089,7 +2113,6 @@ function CommandWeeklyTaskTracker() {
                   className={"w-full h-12 bg-slate-950 border rounded-lg px-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors shadow-inner " + (attemptedSubmit && !newText.trim() ? "border-rose-500" : "border-slate-700")} 
                 />
                 
-                {/* Dynamically adjust grid template based on Role */}
                 <div className={`grid grid-cols-2 sm:grid-cols-3 ${canAssignTasks ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-2 items-center`}>
                   <div className="w-full">
                     <LabelPicker labels={labels} value={newLabel} onChange={setNewLabel} onCreateLabel={createLabel} />
@@ -2103,7 +2126,6 @@ function CommandWeeklyTaskTracker() {
                     <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className={"w-full h-10 bg-slate-800 border rounded px-3 text-sm text-white focus:outline-none hover:border-slate-500 transition-colors cursor-pointer " + (attemptedSubmit && !newDue ? "border-rose-500" : "border-slate-700")} />
                   </div>
 
-                  {/* Render Assignment Dropdown ONLY for Supervisors and Admins */}
                   {canAssignTasks && (
                     <div className="w-full">
                       <select 
@@ -2301,7 +2323,7 @@ function CommandWeeklyTaskTracker() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                  {/* Row 1: Man-Hour Distribution & Time Efficiency side-by-side */}
+                  {/* Man-Hour Distribution & Time Efficiency side-by-side */}
                   <ChartCard title="MAN-HOUR DISTRIBUTION BY CONTRIBUTOR" subtitle="Total logged hours per maintainer across all tasks.">
                     {manHourDistribution.length > 0 ? (
                       <ResponsiveContainer width="100%" height={220}>
