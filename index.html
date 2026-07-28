@@ -151,7 +151,6 @@ function completedOnTime(task) {
   return task.completedAt && !task.due ? true : (lead === null ? null : lead >= 0);
 }
 
-// 12-Hour Max Shift Limit (43,200,000 ms) to prevent runaway/forgotten timers
 const MAX_SESSION_MS = 12 * 3600 * 1000;
 
 function userElapsedMs(task, uid, nowTs) {
@@ -162,7 +161,6 @@ function userElapsedMs(task, uid, nowTs) {
   if (!runningSince) return base;
   
   const rawElapsed = Math.max(0, (nowTs || Date.now()) - new Date(runningSince).getTime());
-  // Auto-cap single continuous session at 12 hours
   const activeElapsed = Math.min(rawElapsed, MAX_SESSION_MS);
   return base + activeElapsed;
 }
@@ -484,6 +482,17 @@ const updateTaskInDb = async (taskObj, targetUid) => {
       }
     } catch(e) {
       console.error("Database update error:", e);
+    }
+  }
+};
+
+const saveLabelsToCloud = async (list) => {
+  if (window.db && window.dbOperations && window.auth?.currentUser) {
+    const { doc, setDoc } = window.dbOperations;
+    try {
+      await setDoc(doc(window.db, "users", window.auth.currentUser.uid, "config", "labels"), { list }, { merge: true });
+    } catch (e) {
+      console.error("Error saving labels to cloud:", e);
     }
   }
 };
@@ -1077,7 +1086,6 @@ function CommandWeeklyTaskTracker() {
     setEditingTask(null);
   };
 
-  // Supervisor override: Force-stop / reset a runaway timer for a sailor task
   const resetSailorTimer = (id) => {
     setSailorTasks(prev => {
        const updated = prev.map(t => {
@@ -1181,7 +1189,6 @@ function CommandWeeklyTaskTracker() {
     });
   };
 
-  // Supervisor actions for inspected sailor tasks
   const toggleSailorTimer = (id) => {
     setSailorTasks(prev => {
        const updated = prev.map(t => {
@@ -1241,7 +1248,6 @@ function CommandWeeklyTaskTracker() {
     });
   };
 
-  // Aggregate Man-Hour Distribution Breakdown across all tasks for Analytics
   const manHourDistribution = useMemo(() => {
     const contributorMap = {};
     tasks.forEach(t => {
@@ -1260,7 +1266,6 @@ function CommandWeeklyTaskTracker() {
     return Object.keys(contributorMap).map(name => ({ name, hours: contributorMap[name] }));
   }, [tasks, shopSailors, nowTs, userName]);
 
-  // Specific Sailor's Man-Hour Distribution for Admin Panel Inspector
   const sailorManHourDistribution = useMemo(() => {
     if (!selectedSailorUid) return [];
     const contributorMap = {};
@@ -1482,7 +1487,7 @@ function CommandWeeklyTaskTracker() {
       );
     }
 
-    if (showTour) return <GuidedTour onComplete={completeTour} />;
+    if (showTour) return <GuidedTour onComplete={() => setShowTour(false)} />;
     
     if (showChangeNameModal) {
       return (
@@ -1705,46 +1710,72 @@ function CommandWeeklyTaskTracker() {
     
     if (managingLabels) {
        return (
-         <ModalOverlay>
-             <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-md shadow-2xl">
-                 <h3 className="text-sm font-mono tracking-widest text-slate-400 mb-4 flex justify-between items-center">
-                     LABEL MANAGER
-                     <button onClick={() => setManagingLabels(false)} className="text-slate-500 hover:text-white">✕</button>
-                 </h3>
-                 
-                 <div className="mb-6 p-4 bg-slate-800 rounded border border-slate-700">
+          <ModalOverlay>
+              <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-md shadow-2xl">
+                  <h3 className="text-sm font-mono tracking-widest text-slate-400 mb-4 flex justify-between items-center">
+                      LABEL MANAGER
+                      <button onClick={() => setManagingLabels(false)} className="text-slate-500 hover:text-white">✕</button>
+                  </h3>
+                  
+                  <div className="mb-6 p-4 bg-slate-800 rounded border border-slate-700">
                     <h4 className="font-mono text-[10px] tracking-widest text-slate-400 mb-2">CREATE NEW LABEL</h4>
                     <div className="flex gap-2 mb-3">
-                        <input value={newManagerLabel} onChange={e=>setNewManagerLabel(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { createLabel({name: newManagerLabel, color: newManagerColor}); setNewManagerLabel(""); } }} className="flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none" placeholder="Label name..." />
-                        <button onClick={() => { const n = newManagerLabel.trim(); if(n) { createLabel({name: n, color: newManagerColor}); setNewManagerLabel(""); } }} className="font-mono text-[10px] font-bold tracking-widest px-3 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>ADD</button>
+                        <input 
+                          value={newManagerLabel} 
+                          onChange={e=>setNewManagerLabel(e.target.value)} 
+                          onKeyDown={(e) => { 
+                            if (e.key === "Enter") { 
+                              const n = newManagerLabel.trim(); 
+                              if (n) { 
+                                createLabel({name: n, color: newManagerColor}); 
+                                setNewManagerLabel(""); 
+                              } 
+                            } 
+                          }} 
+                          className="flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none" 
+                          placeholder="Label name..." 
+                        />
+                        <button 
+                          onClick={() => { 
+                            const n = newManagerLabel.trim(); 
+                            if(n) { 
+                              createLabel({name: n, color: newManagerColor}); 
+                              setNewManagerLabel(""); 
+                            } 
+                          }} 
+                          className="font-mono text-[10px] font-bold tracking-widest px-3 rounded" 
+                          style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}
+                        >
+                          ADD
+                        </button>
                     </div>
                     <div className="flex gap-1 justify-between">
                         {LABEL_PALETTE.map(c => <button key={c} onClick={() => setNewManagerColor(c)} className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110" style={{ backgroundColor: c, borderColor: newManagerColor === c ? '#fff' : 'transparent' }} />)}
                     </div>
-                 </div>
+                  </div>
 
-                 {labels.length === 0 ? (
-                     <p className="text-slate-500 text-sm text-center py-6 font-mono border-t border-slate-800">No custom labels exist yet.</p>
-                 ) : (
-                     <div className="space-y-4 max-h-60 overflow-y-auto hide-scrollbar pr-2 border-t border-slate-800 pt-4">
-                         {labels.map(l => (
-                             <div key={l.name} className="flex flex-col gap-2 p-3 bg-slate-800 rounded border border-slate-700">
-                                 <div className="flex gap-2 items-center">
-                                     <input defaultValue={l.name} onBlur={(e) => saveLabelEdits(l.name, e.target.value, l.color)} className="flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none" />
-                                     <button onClick={() => deleteLabel(l.name)} className="p-1.5 text-slate-500 hover:text-rose-500 hover:bg-slate-700 rounded"><svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
-                                 </div>
-                                 <div className="flex gap-2 justify-between">
-                                     {LABEL_PALETTE.map(c => <button key={c} onClick={() => saveLabelEdits(l.name, l.name, c)} className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110" style={{ backgroundColor: c, borderColor: l.color === c ? '#fff' : 'transparent' }} />)}
-                                 </div>
-                             </div>
-                         ))}
-                     </div>
-                 )}
-                 <div className="mt-6 flex justify-end">
-                     <button onClick={() => setManagingLabels(false)} className="font-mono text-xs tracking-wider px-6 py-2 rounded bg-slate-800 text-white border border-slate-600 hover:bg-slate-700">DONE</button>
-                 </div>
-             </div>
-         </ModalOverlay>
+                  {labels.length === 0 ? (
+                      <p className="text-slate-500 text-sm text-center py-6 font-mono border-t border-slate-800">No custom labels exist yet.</p>
+                  ) : (
+                      <div className="space-y-4 max-h-60 overflow-y-auto hide-scrollbar pr-2 border-t border-slate-800 pt-4">
+                          {labels.map(l => (
+                              <div key={l.name} className="flex flex-col gap-2 p-3 bg-slate-800 rounded border border-slate-700">
+                                  <div className="flex gap-2 items-center">
+                                      <input defaultValue={l.name} onBlur={(e) => saveLabelEdits(l.name, e.target.value, l.color)} className="flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none" />
+                                      <button onClick={() => deleteLabel(l.name)} className="p-1.5 text-slate-500 hover:text-rose-500 hover:bg-slate-700 rounded"><svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
+                                  </div>
+                                  <div className="flex gap-2 justify-between">
+                                      {LABEL_PALETTE.map(c => <button key={c} onClick={() => saveLabelEdits(l.name, l.name, c)} className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110" style={{ backgroundColor: c, borderColor: l.color === c ? '#fff' : 'transparent' }} />)}
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  )}
+                  <div className="mt-6 flex justify-end">
+                      <button onClick={() => setManagingLabels(false)} className="font-mono text-xs tracking-wider px-6 py-2 rounded bg-slate-800 text-white border border-slate-600 hover:bg-slate-700">DONE</button>
+                  </div>
+              </div>
+          </ModalOverlay>
        )
     }
 
@@ -1883,7 +1914,6 @@ function CommandWeeklyTaskTracker() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 px-4 py-8 sm:px-8 flex flex-col relative">
-      {/* 24-Hour Ticking System Clock */}
       <SystemClock />
 
       {celebrate && <Confetti />}
@@ -1901,7 +1931,6 @@ function CommandWeeklyTaskTracker() {
           </div>
         </header>
 
-        {/* Navigation Bar */}
         <nav className="flex gap-1 mb-6 bg-slate-900 border border-slate-800 rounded-lg p-1">
           {canAssignTasks && (
             <button onClick={() => setTab("oversight")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "oversight" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ADMIN PANEL</button>
@@ -1912,10 +1941,8 @@ function CommandWeeklyTaskTracker() {
           <button onClick={() => setTab("analytics")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "analytics" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ANALYTICS</button>
         </nav>
 
-        {/* ADMIN PANEL / SUPERVISOR OVERSIGHT TAB */}
         {tab === "oversight" && canAssignTasks && (
           <div className="space-y-6">
-            {/* Admin Header */}
             <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col md:flex-row justify-between items-center gap-4">
               <div className="text-center md:text-left">
                 <h2 className="font-mono text-xs tracking-widest text-teal-400 mb-1">COMMAND MASTER ADMIN PANEL</h2>
@@ -1937,7 +1964,6 @@ function CommandWeeklyTaskTracker() {
               </div>
             </section>
 
-            {/* Oversight Monitor & Filter */}
             <section className="bg-slate-900 border border-slate-800 rounded-xl p-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div className="flex flex-wrap items-center gap-3">
@@ -1990,7 +2016,6 @@ function CommandWeeklyTaskTracker() {
                     </div>
                   </div>
 
-                  {/* Individual Sailor Man-Hour Distribution Chart */}
                   <div className="bg-slate-950 border border-slate-800 rounded-lg p-4">
                     <h4 className="font-mono text-xs tracking-widest text-teal-400 mb-2">INDIVIDUAL MAN-HOUR BREAKDOWN</h4>
                     {sailorManHourDistribution.length > 0 ? (
@@ -2011,7 +2036,6 @@ function CommandWeeklyTaskTracker() {
               )}
             </section>
 
-            {/* Interactive Sailor Task Management with Force-Stop Override */}
             <section className="space-y-3">
               <h3 className="font-mono text-xs tracking-widest text-slate-400 mb-2">ACTIVE ASSIGNED TASKS (SUPERVISOR OVERRIDE)</h3>
               {sailorTasks.filter(t => !t.done).length === 0 ? (
@@ -2052,7 +2076,6 @@ function CommandWeeklyTaskTracker() {
           </div>
         )}
 
-        {/* HOME WELCOME TAB */}
         {tab === "home" && (
           <div className="space-y-6">
             <section className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center flex flex-col items-center">
@@ -2086,7 +2109,6 @@ function CommandWeeklyTaskTracker() {
           </div>
         )}
 
-        {/* ACTIVE TASKS TAB */}
         {tab === "tasks" && (
           <React.Fragment>
             {errorAlert && (
@@ -2159,7 +2181,6 @@ function CommandWeeklyTaskTracker() {
               </div>
             </section>
 
-            {/* Sort & View Controls Bar */}
             <div className="flex flex-col sm:flex-row justify-between items-center gap-3 mb-4 bg-slate-900 border border-slate-800 rounded-lg px-4 py-2.5">
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <span className="font-mono text-[10px] tracking-widest text-slate-400">SORT BY:</span>
@@ -2262,7 +2283,6 @@ function CommandWeeklyTaskTracker() {
           </React.Fragment>
         )}
 
-        {/* HISTORY (COMPLETED LOG) TAB */}
         {tab === "history" && (
           <React.Fragment>
             <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6 flex items-center gap-6">
@@ -2300,7 +2320,6 @@ function CommandWeeklyTaskTracker() {
           </React.Fragment>
         )}
 
-        {/* ANALYTICS TAB */}
         {tab === "analytics" && (
           <React.Fragment>
             <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6 flex items-center gap-6">
@@ -2323,7 +2342,6 @@ function CommandWeeklyTaskTracker() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                  {/* Man-Hour Distribution & Time Efficiency side-by-side */}
                   <ChartCard title="MAN-HOUR DISTRIBUTION BY CONTRIBUTOR" subtitle="Total logged hours per maintainer across all tasks.">
                     {manHourDistribution.length > 0 ? (
                       <ResponsiveContainer width="100%" height={220}>
@@ -2367,7 +2385,6 @@ function CommandWeeklyTaskTracker() {
                     )}
                   </ChartCard>
 
-                  {/* Daily Throughput */}
                   <ChartCard wide title={"DAILY THROUGHPUT — LAST " + chartRange + " DAYS"} subtitle="Bars: tasks completed per day. Line: 7-day rolling average." action={<div className="flex gap-1">{[14, 30].map((r) => (<button key={r} onClick={() => setChartRange(r)} className="font-mono text-[10px] font-bold tracking-widest px-2.5 py-1 rounded" style={chartRange === r ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b", border: "1px solid #334155" }}>{r}D</button>))}</div>}>
                     <ResponsiveContainer width="100%" height={200}>
                       <ComposedChart data={analytics.byDay30.slice(-chartRange)} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
@@ -2381,7 +2398,6 @@ function CommandWeeklyTaskTracker() {
                     </ResponsiveContainer>
                   </ChartCard>
 
-                  {/* Lead Time per Task */}
                   <ChartCard wide title="LEAD TIME PER TASK — LAST 12 DATED COMPLETIONS" subtitle="Days ahead of (teal) or behind (rose) the deadline.">
                     {analytics.leadPerTask.length > 0 ? (
                       <ResponsiveContainer width="100%" height={Math.max(160, analytics.leadPerTask.length * 28 + 40)}>
@@ -2402,7 +2418,6 @@ function CommandWeeklyTaskTracker() {
                     )}
                   </ChartCard>
 
-                  {/* Reliability by Priority */}
                   <ChartCard title="RELIABILITY BY PRIORITY" subtitle="On-time (teal) vs late (rose) per tier.">
                     <ResponsiveContainer width="100%" height={190}>
                       <BarChart data={analytics.priorityReliability} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
@@ -2417,7 +2432,6 @@ function CommandWeeklyTaskTracker() {
                     </ResponsiveContainer>
                   </ChartCard>
 
-                  {/* Completions by Day of Week */}
                   <ChartCard title="COMPLETIONS BY DAY OF WEEK" subtitle="Busiest day highlighted amber.">
                     <ResponsiveContainer width="100%" height={190}>
                       <BarChart data={analytics.byWeekday} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
@@ -2434,7 +2448,6 @@ function CommandWeeklyTaskTracker() {
                     </ResponsiveContainer>
                   </ChartCard>
 
-                  {/* Completions by Time of Day */}
                   <ChartCard wide title="COMPLETIONS BY TIME OF DAY" subtitle="3-hour blocks. Peak block highlighted amber.">
                     <ResponsiveContainer width="100%" height={170}>
                       <BarChart data={analytics.byHourBlock} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
@@ -2481,4 +2494,4 @@ function CommandWeeklyTaskTracker() {
 ReactDOM.createRoot(document.getElementById("root")).render(<CommandWeeklyTaskTracker />);
 </script>
 </body>
-</html> 
+</html>
