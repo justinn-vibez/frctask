@@ -1998,7 +1998,7 @@ function CommandWeeklyTaskTracker() {
                         <BarChart data={sailorManHourDistribution} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                           <XAxis dataKey="name" tick={axisTickLight} />
-                          <YAxis tick={axisTick} />
+                          <YAxis tick={axisTick} domain={[0, 'dataMax + 1']} allowDecimals={false} />
                           <Tooltip contentStyle={chartTooltipStyle} formatter={(v) => [v + " hours", "Hours"]} />
                           <Bar dataKey="hours" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
                         </BarChart>
@@ -2481,4 +2481,4 @@ function CommandWeeklyTaskTracker() {
 ReactDOM.createRoot(document.getElementById("root")).render(<CommandWeeklyTaskTracker />);
 </script>
 </body>
-</html>
+</html> 
