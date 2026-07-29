@@ -518,6 +518,7 @@ function CommandWeeklyTaskTracker() {
   const [selectedWcFilter, setSelectedWcFilter] = useState("ALL");
   const [showWcManager, setShowWcManager] = useState(false);
   const [showUserManager, setShowUserManager] = useState(false);
+  const [userEdits, setUserEdits] = useState({});
   const [showChangeNameModal, setShowChangeNameModal] = useState(false);
   const [draftNewName, setDraftNewName] = useState("");
   const [newWcDraft, setNewWcDraft] = useState("");
@@ -618,17 +619,58 @@ function CommandWeeklyTaskTracker() {
     lsSet(WORK_CENTERS_KEY, next);
   };
 
-  const updateUserPermissions = async (uid, newRole, newWc) => {
+  const openUserManager = () => {
+    const initialEdits = {};
+    shopSailors.forEach(s => {
+      const uid = s.uid || s.id;
+      initialEdits[uid] = {
+        role: s.role || "sailor",
+        workCenter: s.workCenter || "040"
+      };
+    });
+    setUserEdits(initialEdits);
+    setShowUserManager(true);
+  };
+
+  const handleEditChange = (uid, field, value) => {
+    setUserEdits(prev => ({
+      ...prev,
+      [uid]: {
+        ...(prev[uid] || {}),
+        [field]: value
+      }
+    }));
+  };
+
+  const applyAllUserPermissions = async () => {
     if (!window.db || !window.dbOperations) return;
     const { doc, updateDoc } = window.dbOperations;
     try {
-      await updateDoc(doc(window.db, "users", uid), {
-        role: newRole,
-        workCenter: newWc
+      const promises = Object.keys(userEdits).map(async (uid) => {
+        const edits = userEdits[uid];
+        await updateDoc(doc(window.db, "users", uid), {
+          role: edits.role,
+          workCenter: edits.workCenter
+        });
       });
-      setShopSailors(prev => prev.map(s => (s.uid === uid || s.id === uid) ? { ...s, role: newRole, workCenter: newWc } : s));
+
+      await Promise.all(promises);
+
+      setShopSailors(prev => prev.map(s => {
+        const uid = s.uid || s.id;
+        if (userEdits[uid]) {
+          return { ...s, role: userEdits[uid].role, workCenter: userEdits[uid].workCenter };
+        }
+        return s;
+      }));
+
+      setShowUserManager(false);
+      setErrorAlert("success: User privileges and work centers updated successfully.");
+      setTimeout(() => setErrorAlert(null), 4000);
     } catch (e) {
       console.error("Error updating user privileges:", e);
+      setErrorAlert("Error: Failed to update user privileges in database.");
+      setTimeout(() => setErrorAlert(null), 5000);
     }
   };
 
@@ -1528,6 +1570,7 @@ function CommandWeeklyTaskTracker() {
             <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
               {shopSailors.map(s => {
                 const uid = s.uid || s.id;
+                const currentEdit = userEdits[uid] || { role: s.role || "sailor", workCenter: s.workCenter || "040" };
                 return (
                   <div key={uid} className="bg-slate-800 border border-slate-700 rounded-lg p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -1536,8 +1579,8 @@ function CommandWeeklyTaskTracker() {
                     </div>
                     <div className="flex items-center gap-2 w-full sm:w-auto">
                       <select 
-                        defaultValue={s.role || "sailor"} 
-                        onChange={(e) => updateUserPermissions(uid, e.target.value, s.workCenter || "040")}
+                        value={currentEdit.role} 
+                        onChange={(e) => handleEditChange(uid, 'role', e.target.value)}
                         className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-teal-300 font-mono focus:outline-none"
                       >
                         <option value="sailor">Sailor</option>
@@ -1545,8 +1588,8 @@ function CommandWeeklyTaskTracker() {
                         <option value="admin">Admin</option>
                       </select>
                       <select 
-                        defaultValue={s.workCenter || "040"} 
-                        onChange={(e) => updateUserPermissions(uid, s.role || "sailor", e.target.value)}
+                        value={currentEdit.workCenter} 
+                        onChange={(e) => handleEditChange(uid, 'workCenter', e.target.value)}
                         className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-amber-300 font-mono focus:outline-none"
                       >
                         {workCenters.map(wc => <option key={wc} value={wc}>WC: {wc}</option>)}
@@ -1556,8 +1599,9 @@ function CommandWeeklyTaskTracker() {
                 );
               })}
             </div>
-            <div className="flex justify-end mt-6">
-              <button onClick={() => setShowUserManager(false)} className="font-mono text-xs px-5 py-2 rounded bg-slate-800 text-white border border-slate-700 hover:bg-slate-700">DONE</button>
+            <div className="flex justify-end gap-2 mt-6">
+              <button onClick={() => setShowUserManager(false)} className="font-mono text-xs px-4 py-2 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">CANCEL</button>
+              <button onClick={applyAllUserPermissions} className="font-mono text-xs font-bold tracking-widest px-5 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.teal }}>APPLY CHANGES</button>
             </div>
           </div>
         </ModalOverlay>
@@ -1955,7 +1999,7 @@ function CommandWeeklyTaskTracker() {
                 <button onClick={() => setShowProvisionModal(true)} className="h-10 font-mono text-xs font-bold tracking-widest rounded transition-transform active:scale-95 flex items-center justify-center w-full sm:w-48" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
                   ＋ ADD NEW USER
                 </button>
-                <button onClick={() => setShowUserManager(true)} className="h-10 font-mono text-xs tracking-widest rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 flex items-center justify-center w-full sm:w-48">
+                <button onClick={openUserManager} className="h-10 font-mono text-xs tracking-widest rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 flex items-center justify-center w-full sm:w-48">
                   👥 MANAGE USERS
                 </button>
                 <button onClick={() => setShowWcManager(true)} className="h-10 font-mono text-xs tracking-widest rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 flex items-center justify-center w-full sm:w-48">
