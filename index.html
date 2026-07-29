@@ -657,48 +657,38 @@ function CommandWeeklyTaskTracker() {
     });
   };
 
-  const applyAllUserPermissions = async () => {
-    const dbAvailable = window.db && window.dbOperations;
-    const { doc, setDoc } = dbAvailable ? window.dbOperations : { doc: null, setDoc: null };
-    
-    try {
-      if (dbAvailable) {
-        const promises = Object.keys(userEdits).map(async (uid) => {
-          const edits = userEdits[uid];
-          try {
-            await setDoc(doc(window.db, "users", uid), {
-              role: edits.role,
-              workCenters: edits.workCenters,
-              workCenter: edits.workCenters[0] || "040"
-            }, { merge: true });
-          } catch (err) {
-            console.warn(`Cloud write restricted for ${uid}, applying locally:`, err);
-          }
-        });
+  const applyAllUserPermissions = () => {
+    setShowUserManager(false);
+    setErrorAlert("success: User privileges and work centers updated successfully.");
+    setTimeout(() => setErrorAlert(null), 4000);
 
-        await Promise.all(promises);
+    setShopSailors(prev => prev.map(s => {
+      const uid = s.uid || s.id;
+      if (userEdits[uid]) {
+        return { 
+          ...s, 
+          role: userEdits[uid].role, 
+          workCenters: userEdits[uid].workCenters, 
+          workCenter: userEdits[uid].workCenters[0] || "040" 
+        };
       }
+      return s;
+    }));
 
-      setShopSailors(prev => prev.map(s => {
-        const uid = s.uid || s.id;
-        if (userEdits[uid]) {
-          return { 
-            ...s, 
-            role: userEdits[uid].role, 
-            workCenters: userEdits[uid].workCenters, 
-            workCenter: userEdits[uid].workCenters[0] || "040" 
-          };
+    if (window.db && window.dbOperations) {
+      const { doc, setDoc } = window.dbOperations;
+      Object.keys(userEdits).forEach(async (uid) => {
+        const edits = userEdits[uid];
+        try {
+          await setDoc(doc(window.db, "users", uid), {
+            role: edits.role,
+            workCenters: edits.workCenters,
+            workCenter: edits.workCenters[0] || "040"
+          }, { merge: true });
+        } catch (err) {
+          console.warn(`Background cloud write restricted for ${uid}:`, err);
         }
-        return s;
-      }));
-
-      setErrorAlert("success: User privileges and work centers updated successfully.");
-    } catch (e) {
-      console.error("Error updating user privileges:", e);
-      setErrorAlert("Error: Failed to update user privileges.");
-    } finally {
-      setShowUserManager(false);
-      setTimeout(() => setErrorAlert(null), 4000);
+      });
     }
   };
 
