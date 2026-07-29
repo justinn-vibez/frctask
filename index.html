@@ -81,6 +81,9 @@ const PRIORITIES = [
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+const axisTick = { fill: "#64748b", fontSize: 10, fontFamily: "monospace" };
+const axisTickLight = { fill: "#94a3b8", fontSize: 10, fontFamily: "monospace" };
+
 function lsGet(key) { try { const r = window.localStorage.getItem(key); return r ? JSON.parse(r) : null; } catch (e) { return null; } }
 function lsSet(key, value) { try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
 
@@ -711,7 +714,7 @@ function CommandWeeklyTaskTracker() {
   const [sortMode, setSortMode] = useState("default");
   const [viewMode, setViewMode] = useState("list");
 
-  // Main Authentication and Root Snapshot Listener
+  // Main Authentication and Personal Task Snapshot Listener
   useEffect(() => {
     let unsubscribeAuth = null;
     let unsubscribeTasks = null;
@@ -2005,6 +2008,43 @@ function CommandWeeklyTaskTracker() {
                       <p className="font-mono text-xs text-teal-400 tracking-wider mb-3">WORK CENTERS: {selectedSailorObj.workCenters ? selectedSailorObj.workCenters.join(", ") : "040"} · ROLE: {(selectedSailorObj.role || "sailor").toUpperCase()}</p>
                       <p className="text-xs text-slate-400">{oversightTotal === 0 ? "No active tasks assigned for this week." : `${oversightCompleted} of ${oversightTotal} tasks completed (${oversightPct}%).`}</p>
                     </div>
+                  </div>
+
+                  {/* SAILOR TASKS & TIMERS VIEW (ADMIN PANEL OVERSIGHT) */}
+                  <div className="space-y-3">
+                    <h4 className="font-mono text-xs tracking-widest text-teal-400">ASSIGNED TASKS & LIVE TIMERS</h4>
+                    {sailorTasks.length === 0 ? (
+                      <p className="text-xs text-slate-500 font-mono text-center py-4 bg-slate-950 rounded border border-slate-800">No tasks currently assigned to this sailor.</p>
+                    ) : (
+                      sailorTasks.map((t) => {
+                        const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
+                        const currentUid = window.auth?.currentUser?.uid;
+                        const isCurrentUserRunning = t.runningWorkers && t.runningWorkers[currentUid];
+                        const isAnyoneRunning = t.runningWorkers && Object.keys(t.runningWorkers).length > 0;
+                        const ms = totalTaskMs(t, nowTs);
+                        return (
+                          <div key={t.id} className="bg-slate-950 border border-slate-800 rounded-lg p-4" style={{ borderLeft: "4px solid " + pm.color }}>
+                            <div className="flex items-start gap-3">
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-sm sm:text-base text-white ${t.done ? 'line-through text-slate-500' : ''}`}>{t.text}</p>
+                                <div className="flex flex-wrap items-center gap-2 mt-2">
+                                  {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
+                                  <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
+                                  {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
+                                </div>
+                                {!t.done && (
+                                  <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
+                                    <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: isAnyoneRunning ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: isAnyoneRunning ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
+                                    <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={isCurrentUserRunning ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{isCurrentUserRunning ? "❚❚ CLOCK OUT" : ms > 0 ? "▶ RESUME" : "▶ CLOCK IN"}</button>
+                                  </div>
+                                )}
+                                <TaskNotes task={t} onSaveNote={saveTaskNote} />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
 
                   <div className="bg-slate-950 border border-slate-800 rounded-lg p-4">
