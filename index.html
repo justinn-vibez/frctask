@@ -526,7 +526,6 @@ function CommandWeeklyTaskTracker() {
   const [newProvUser, setNewProvUser] = useState("");
   const [newProvPass, setNewProvPass] = useState("");
   const [newProvName, setNewProvName] = useState("");
-  const [newProvWCs, setNewProvWCs] = useState(["040"]);
   const [newProvRole, setNewProvRole] = useState("sailor");
   const [provSuccess, setProvSuccess] = useState(null);
 
@@ -584,7 +583,7 @@ function CommandWeeklyTaskTracker() {
         uid: newUid,
         email: cleanEmail,
         displayName: newProvName.trim() || newProvUser.trim(),
-        workCenters: newProvWCs.length > 0 ? newProvWCs : ["040"],
+        workCenters: ["040"],
         role: newProvRole,
         createdAt: new Date().toISOString()
       });
@@ -834,7 +833,6 @@ function CommandWeeklyTaskTracker() {
             console.error("Firestore personal task sync error:", error);
           });
 
-          // Listen to all work center pools the user has access to
           if (unsubscribePoolTasks.length > 0) {
             unsubscribePoolTasks.forEach(unsub => unsub());
             unsubscribePoolTasks = [];
@@ -929,7 +927,7 @@ function CommandWeeklyTaskTracker() {
     prevPct.current = pct;
   }, [pct, loaded, weekTotal]);
 
-  const isRestrictedSailor = userRole === "sailor"; // Restricted maintainer: view work center pool, complete & note, but NO assign/delete/create
+  const isRestrictedSailor = userRole === "sailor";
 
   const addTask = async () => {
     if (isRestrictedSailor) {
@@ -1033,7 +1031,6 @@ function CommandWeeklyTaskTracker() {
   };
   
   const triggerAction = (type, id) => {
-    const targetTask = tasks.find(t => t.id === id);
     if (isRestrictedSailor && (type === 'delete' || type === 'edit')) {
       setErrorAlert("Permission Restricted: Maintainer accounts cannot delete or reassign tasks.");
       setTimeout(() => setErrorAlert(null), 5000);
@@ -1105,6 +1102,7 @@ function CommandWeeklyTaskTracker() {
   };
 
   const uncheckTask = (id) => {
+    if (isRestrictedSailor) return;
     const currentUid = window.auth?.currentUser?.uid;
     setTasks(prev => {
         const updated = prev.map(t => {
