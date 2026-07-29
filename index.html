@@ -17,7 +17,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc, getDoc, runTransaction, increment, deleteField } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyAUnOEQeQD0DGOcL8ZhU3hnPdqYCfBo2Jg",
@@ -31,6 +31,11 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
     const auth = getAuth(app);
+
+    setPersistence(auth, browserLocalPersistence).catch((err) => {
+      console.warn("Local persistence restricted, falling back to memory:", err);
+      setPersistence(auth, inMemoryPersistence);
+    });
 
     window.firebaseConfig = firebaseConfig;
     window.initializeApp = initializeApp;
@@ -261,16 +266,17 @@ function CollaboratorPopover({ task, nowTs, shopSailors, currentUid, userName })
   if (allUids.length === 0) return null;
 
   return (
-    <div className="relative inline-block ml-2">
+    <div className="relative inline-block ml-2" style={{ animation: 'none', opacity: 1 }}>
       <button 
         onClick={(e) => { e.stopPropagation(); setShow(!show); }}
         className="font-mono text-[10px] px-2 py-1 rounded bg-slate-800 border border-slate-700 text-teal-400 hover:bg-slate-700 flex items-center gap-1 shadow"
+        style={{ animation: 'none', opacity: 1 }}
         title="View participant breakdown"
       >
         👥 {Object.keys(runningWorkers).length > 0 ? `${Object.keys(runningWorkers).length} active` : `${allUids.length} contrib`}
       </button>
       {show && (
-        <div className="absolute left-0 bottom-full mb-1 z-50 bg-slate-900 border border-slate-700 rounded-lg p-3 shadow-2xl w-60 text-xs font-mono">
+        <div className="absolute left-0 bottom-full mb-1 z-50 bg-slate-900 border border-slate-700 rounded-lg p-3 shadow-2xl w-60 text-xs font-mono" style={{ animation: 'none', opacity: 1 }}>
           <div className="flex justify-between items-center mb-2 border-b border-slate-800 pb-1">
             <span className="text-teal-400 font-bold">PARTICIPANT BREAKDOWN</span>
             <button onClick={(e) => { e.stopPropagation(); setShow(false); }} className="text-slate-500 hover:text-white">✕</button>
@@ -767,6 +773,9 @@ function CommandWeeklyTaskTracker() {
   const [askingName, setAskingName] = useState(false);
   const [askingOfficialName, setAskingOfficialName] = useState(false);
   const [draftOfficialName, setDraftOfficialName] = useState("");
+
+  // TV Mode Work Center / Division filter state
+  const [tvWcFilter, setTvWcFilter] = useState("ALL");
 
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
@@ -1495,6 +1504,10 @@ function CommandWeeklyTaskTracker() {
   };
 
   const activeTasks = tasks.filter((t) => !t.done).sort((a, b) => {
+      const aRunning = a.runningWorkers && a.runningWorkers[currentUid] ? 1 : 0;
+      const bRunning = b.runningWorkers && b.runningWorkers[currentUid] ? 1 : 0;
+      if (aRunning !== bRunning) return bRunning - aRunning;
+
       if (sortMode === "priority_high_low") {
           const weights = { asap: 0, high: 1, medium: 2, low: 3 };
           return weights[a.priority] - weights[b.priority];
@@ -2045,8 +2058,21 @@ function CommandWeeklyTaskTracker() {
   };
 
   if (tvMode) {
-      const immediateTasks = activeTasks.filter(t => isDueTodayOrOverdue(t) || t.priority === 'asap');
-      const standardTasks = activeTasks.filter(t => !isDueTodayOrOverdue(t) && t.priority !== 'asap');
+      const tvFilteredTasks = activeTasks.filter(t => {
+        if (tvWcFilter === "ALL") return true;
+        if (t.assignedTo && t.assignedTo.startsWith("WC-")) {
+          return t.assignedTo.replace("WC-", "") === tvWcFilter;
+        }
+        const assignedSailor = shopSailors.find(s => (s.uid || s.id) === t.assignedTo);
+        if (assignedSailor) {
+          const wcs = assignedSailor.workCenters || (assignedSailor.workCenter ? [assignedSailor.workCenter] : ["040"]);
+          return wcs.includes(tvWcFilter);
+        }
+        return true;
+      });
+
+      const immediateTasks = tvFilteredTasks.filter(t => isDueTodayOrOverdue(t) || t.priority === 'asap');
+      const standardTasks = tvFilteredTasks.filter(t => !isDueTodayOrOverdue(t) && t.priority !== 'asap');
       const highTasks = standardTasks.filter(t => t.priority === 'high');
       const medTasks = standardTasks.filter(t => t.priority === 'medium');
       const lowTasks = standardTasks.filter(t => t.priority === 'low');
@@ -2063,6 +2089,7 @@ function CommandWeeklyTaskTracker() {
                         {t.label && <span className="font-mono text-sm tracking-widest px-3 py-1 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
                         <span className="font-mono text-sm tracking-widest px-3 py-1 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a" }}>{pm.label}</span>
                         {t.due && <span className="font-mono text-xs tracking-widest px-2 py-1 rounded border border-slate-700 text-slate-400">{dueLabelTxt(t.due)}</span>}
+                        {t.assignedTo && <span className="font-mono text-xs tracking-widest px-2 py-1 rounded bg-teal-950 text-teal-300 border border-teal-800">{getWorkerName(t.assignedTo)}</span>}
                     </div>
                 </div>
                 {(ms > 0 || running) && <div className="shrink-0 text-3xl font-mono tabular-nums font-bold flex items-center gap-2" style={{ color: running ? ACCENT.amber : "#475569" }}>⏱ {fmtDuration(ms)} <CollaboratorPopover task={t} nowTs={nowTs} shopSailors={shopSailors} currentUid={currentUid} userName={userName} /></div>}
@@ -2073,12 +2100,25 @@ function CommandWeeklyTaskTracker() {
       return (
         <div className="min-h-screen bg-slate-950 text-slate-200 p-8 flex flex-col h-screen">
           {celebrate && <Confetti />}
-          <header className="flex justify-between items-center mb-10 shrink-0">
+          <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4 shrink-0">
             <div>
               <p className="font-mono text-lg tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS</p>
-              <h1 className="text-5xl font-bold text-white tracking-tight">ACTIVE BOARD</h1>
+              <h1 className="text-4xl sm:text-5xl font-bold text-white tracking-tight">ACTIVE BOARD</h1>
             </div>
-            <button onClick={() => setTvMode(false)} className="font-mono text-sm tracking-widest px-6 py-3 rounded border border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800">EXIT DISPLAY MODE</button>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2">
+                <span className="font-mono text-xs text-slate-400">TV FILTER:</span>
+                <select 
+                  value={tvWcFilter} 
+                  onChange={(e) => setTvWcFilter(e.target.value)}
+                  className="bg-slate-800 text-white font-mono text-xs rounded px-2 py-1 focus:outline-none"
+                >
+                  <option value="ALL">ALL WORK CENTERS / DIVISION</option>
+                  {workCenters.map(wc => <option key={wc} value={wc}>Work Center {wc}</option>)}
+                </select>
+              </div>
+              <button onClick={() => setTvMode(false)} className="font-mono text-sm tracking-widest px-6 py-3 rounded border border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800">EXIT DISPLAY MODE</button>
+            </div>
           </header>
           
           <div className="flex-1 flex gap-10 min-h-0 overflow-hidden">
@@ -2143,7 +2183,17 @@ function CommandWeeklyTaskTracker() {
           <div>
               <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v7.4]</p>
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
-              {!askingName && userName && <p className="text-slate-400 text-lg">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
+              
+              <div className="flex items-center gap-2 mt-2 font-mono text-[10px]">
+                <span className="px-2 py-0.5 rounded border border-slate-700 bg-slate-900 text-slate-400">
+                  AUTH: {currentUid ? <span className="text-teal-400">ACTIVE ({userName || currentUid.slice(0,6)})</span> : <span className="text-rose-400">NOT SIGNED IN (READ-ONLY)</span>}
+                </span>
+                <span className="px-2 py-0.5 rounded border border-slate-700 bg-slate-900 text-slate-400">
+                  ROLE: <span className="text-teal-300 uppercase">{userRole}</span>
+                </span>
+              </div>
+
+              {!askingName && userName && <p className="text-slate-400 text-lg mt-2">{getGreeting()}, <span className="text-white font-medium">{userName}</span>. Ready to get to work?</p>}
           </div>
           <div className="flex gap-2">
             <button onClick={() => setTvMode(true)} className="font-mono text-[10px] tracking-widest px-3 py-1.5 rounded border border-slate-700 bg-slate-900 text-slate-400 hover:text-white transition-colors hidden sm:block">📺 TV MODE</button>
@@ -2567,6 +2617,7 @@ function CommandWeeklyTaskTracker() {
               <section className="space-y-3">
                 {activeTasks.map((t) => {
                   const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
+                  const currentUid = window.auth?.currentUser?.uid;
                   const running = t.runningWorkers && t.runningWorkers[currentUid];
                   const ms = totalTaskMs(t, nowTs);
                   const thisWeek = inActiveWeek(t);
