@@ -11,7 +11,7 @@
   <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
   <script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
 
   <!-- Firebase Module Script -->
   <script type="module">
@@ -690,16 +690,6 @@ function CommandWeeklyTaskTracker() {
     } catch (e) {
       console.error("Error updating user privileges:", e);
       setErrorAlert("Error: Failed to update user privileges. Check Firestore permissions.");
-      setTimeout(() => setErrorAlert(null), 5000);
-    }
-  };
-
-      setShowUserManager(false);
-      setErrorAlert("success: User privileges and work centers updated successfully.");
-      setTimeout(() => setErrorAlert(null), 4000);
-    } catch (e) {
-      console.error("Error updating user privileges:", e);
-      setErrorAlert("Error: Failed to update user privileges in database.");
       setTimeout(() => setErrorAlert(null), 5000);
     }
   };
