@@ -2480,7 +2480,7 @@ function CommandWeeklyTaskTracker() {
           <p className="font-mono text-xs text-slate-600 tracking-widest text-center">made by AZ2 Medrano, thank an AZ for showing up to work today :-)</p>
           <div className="flex flex-wrap justify-center gap-4">
               <button onClick={() => setManagingLabels(true)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-slate-500 hover:text-white transition-colors border border-slate-800 bg-slate-900">[ MANAGE LABELS ]</button>
-              <button onClick={() => setShowChangeNameModal(true)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-teal-400 hover:text-white transition-colors border border-slate-800 bg-slate-900">[ CHANGE NAME ]</button>
+              <button onClick={() => setManagingLabels(false) || setShowChangeNameModal(true)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-teal-400 hover:text-white transition-colors border border-slate-800 bg-slate-900">[ CHANGE NAME ]</button>
               <button onClick={() => triggerAction('reset', null)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-slate-500 hover:text-rose-500 transition-colors border border-slate-800 bg-slate-900">[ FACTORY RESET ]</button>
               {!askingName && window.auth && (
                   <button onClick={() => triggerAction('signout', null)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-rose-400 hover:text-white transition-colors border border-rose-900 bg-rose-950/40">[ SIGN OUT ]</button>
