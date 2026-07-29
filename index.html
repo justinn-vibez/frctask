@@ -936,13 +936,18 @@ function CommandWeeklyTaskTracker() {
     }
   }, []);
 
-  // Performance Ticker: Updates `nowTs` every second ONLY when active timers are running
+  // Performance Ticker: Updates `nowTs` every second ONLY when active timers are running.
+  // Depends on the derived boolean (not `tasks` itself) so the interval isn't torn down and
+  // recreated on every snapshot update — only when a timer actually starts or stops.
+  const hasRunningTimers = useMemo(
+    () => tasks.some(t => t.runningWorkers && Object.keys(t.runningWorkers).length > 0),
+    [tasks]
+  );
   useEffect(() => {
-    const hasRunning = tasks.some(t => t.runningWorkers && Object.keys(t.runningWorkers).length > 0);
-    if (!hasRunning) return;
+    if (!hasRunningTimers) return;
     const timer = setInterval(() => setNowTs(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [tasks]);
+  }, [hasRunningTimers]);
 
   const filteredShopSailors = useMemo(() => {
     if (selectedWcFilter === "ALL") return shopSailors;
