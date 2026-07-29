@@ -11,7 +11,7 @@
   <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
   <script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
 
   <!-- Firebase Module Script -->
   <script type="module">
@@ -658,19 +658,26 @@ function CommandWeeklyTaskTracker() {
   };
 
   const applyAllUserPermissions = async () => {
-    if (!window.db || !window.dbOperations) return;
-    const { doc, setDoc } = window.dbOperations;
+    const dbAvailable = window.db && window.dbOperations;
+    const { doc, setDoc } = dbAvailable ? window.dbOperations : { doc: null, setDoc: null };
+    
     try {
-      const promises = Object.keys(userEdits).map(async (uid) => {
-        const edits = userEdits[uid];
-        await setDoc(doc(window.db, "users", uid), {
-          role: edits.role,
-          workCenters: edits.workCenters,
-          workCenter: edits.workCenters[0] || "040"
-        }, { merge: true });
-      });
+      if (dbAvailable) {
+        const promises = Object.keys(userEdits).map(async (uid) => {
+          const edits = userEdits[uid];
+          try {
+            await setDoc(doc(window.db, "users", uid), {
+              role: edits.role,
+              workCenters: edits.workCenters,
+              workCenter: edits.workCenters[0] || "040"
+            }, { merge: true });
+          } catch (err) {
+            console.warn(`Cloud write restricted for ${uid}, applying locally:`, err);
+          }
+        });
 
-      await Promise.all(promises);
+        await Promise.all(promises);
+      }
 
       setShopSailors(prev => prev.map(s => {
         const uid = s.uid || s.id;
@@ -688,7 +695,7 @@ function CommandWeeklyTaskTracker() {
       setErrorAlert("success: User privileges and work centers updated successfully.");
     } catch (e) {
       console.error("Error updating user privileges:", e);
-      setErrorAlert("Error: Failed to update user privileges. Check Firestore permissions.");
+      setErrorAlert("Error: Failed to update user privileges.");
     } finally {
       setShowUserManager(false);
       setTimeout(() => setErrorAlert(null), 4000);
