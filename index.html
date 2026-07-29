@@ -11,7 +11,7 @@
   <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
   <script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-  <script crossorigin src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
 
   <!-- Firebase Module Script -->
   <script type="module">
@@ -665,7 +665,8 @@ function CommandWeeklyTaskTracker() {
         const edits = userEdits[uid];
         await setDoc(doc(window.db, "users", uid), {
           role: edits.role,
-          workCenters: edits.workCenters
+          workCenters: edits.workCenters,
+          workCenter: edits.workCenters[0] || "040"
         }, { merge: true });
       });
 
@@ -684,13 +685,13 @@ function CommandWeeklyTaskTracker() {
         return s;
       }));
 
-      setShowUserManager(false);
       setErrorAlert("success: User privileges and work centers updated successfully.");
-      setTimeout(() => setErrorAlert(null), 4000);
     } catch (e) {
       console.error("Error updating user privileges:", e);
       setErrorAlert("Error: Failed to update user privileges. Check Firestore permissions.");
-      setTimeout(() => setErrorAlert(null), 5000);
+    } finally {
+      setShowUserManager(false);
+      setTimeout(() => setErrorAlert(null), 4000);
     }
   };
 
@@ -889,13 +890,11 @@ function CommandWeeklyTaskTracker() {
     }
   }, []);
 
-  // Performance Ticker: Updates `nowTs` every second ONLY when active timers are running
+  // ALWAYS ON Performance Ticker: Updates `nowTs` every second unconditionally to ensure multi-user sync
   useEffect(() => {
-    const hasRunning = tasks.some(t => t.runningWorkers && Object.keys(t.runningWorkers).length > 0);
-    if (!hasRunning) return;
     const timer = setInterval(() => setNowTs(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [tasks]);
+  }, []);
 
   const filteredShopSailors = useMemo(() => {
     if (selectedWcFilter === "ALL") return shopSailors;
@@ -1863,8 +1862,7 @@ function CommandWeeklyTaskTracker() {
 
       const renderTVTask = (t) => {
           const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
-          const currentUid = window.auth?.currentUser?.uid;
-          const running = t.runningWorkers && t.runningWorkers[currentUid];
+          const running = t.runningWorkers && Object.keys(t.runningWorkers).length > 0;
           const ms = totalTaskMs(t, nowTs);
           return (
             <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex items-center gap-6" style={{ borderLeft: "8px solid " + pm.color }}>
@@ -1884,11 +1882,6 @@ function CommandWeeklyTaskTracker() {
       return (
         <div className="min-h-screen bg-slate-950 text-slate-200 p-8 flex flex-col h-screen">
           {celebrate && <Confetti />}
-          {errorAlert && (
-          <div className={`fixed top-8 right-8 z-[80] text-white px-6 py-4 rounded-lg shadow-2xl animate-pulse font-mono text-sm tracking-widest border ${errorAlert.includes("success") ? "bg-teal-900 border-teal-400" : "bg-rose-600 border-rose-400"}`}>
-              {errorAlert}
-          </div>
-      )}
           <header className="flex justify-between items-center mb-10 shrink-0">
             <div>
               <p className="font-mono text-lg tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS</p>
@@ -1942,6 +1935,14 @@ function CommandWeeklyTaskTracker() {
 
       {celebrate && <Confetti />}
       {renderModals()}
+
+      {/* GLOBAL ERROR / SUCCESS ALERT */}
+      {errorAlert && (
+        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 rounded-lg shadow-2xl font-mono text-sm tracking-widest border flex items-center gap-4 ${errorAlert.includes("success") ? "bg-teal-950/90 border-teal-500 text-teal-300" : "bg-rose-950/90 border-rose-500 text-rose-300"}`}>
+            <span>{errorAlert}</span>
+            <button onClick={() => setErrorAlert(null)} className="text-lg opacity-70 hover:opacity-100 pl-4">&times;</button>
+        </div>
+      )}
 
       <div className="max-w-4xl mx-auto w-full flex-1">
         <header className="mb-8 flex justify-between items-end">
@@ -2097,12 +2098,6 @@ function CommandWeeklyTaskTracker() {
 
         {tab === "tasks" && (
           <React.Fragment>
-            {errorAlert && (
-              <div className={`mb-4 px-6 py-4 rounded-lg shadow-xl font-mono text-sm tracking-widest border flex items-center justify-between ${errorAlert.includes("success") ? "bg-teal-950/80 border-teal-500 text-teal-300" : "bg-rose-950/80 border-rose-500 text-rose-300 animate-pulse"}`}>
-                  <span>{errorAlert}</span>
-                  <button onClick={() => setErrorAlert(null)} className="text-lg opacity-70 hover:opacity-100">&times;</button>
-              </div>
-            )}
             <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4 flex items-center gap-6">
               <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} size={110} stroke={10} />
               <div className="flex-1">
@@ -2193,7 +2188,8 @@ function CommandWeeklyTaskTracker() {
                 {activeTasks.map((t) => {
                   const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
                   const currentUid = window.auth?.currentUser?.uid;
-                  const running = t.runningWorkers && t.runningWorkers[currentUid];
+                  const isCurrentUserRunning = t.runningWorkers && t.runningWorkers[currentUid];
+                  const isAnyoneRunning = t.runningWorkers && Object.keys(t.runningWorkers).length > 0;
                   const ms = totalTaskMs(t, nowTs);
                   const thisWeek = inActiveWeek(t);
                   return (
@@ -2213,8 +2209,8 @@ function CommandWeeklyTaskTracker() {
                             )}
                           </div>
                           <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
-                            <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
-                            <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={running ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{running ? "❚❚ CLOCK OUT" : ms > 0 ? "▶ RESUME" : "▶ CLOCK IN"}</button>
+                            <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: isAnyoneRunning ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: isAnyoneRunning ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
+                            <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={isCurrentUserRunning ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{isCurrentUserRunning ? "❚❚ CLOCK OUT" : ms > 0 ? "▶ RESUME" : "▶ CLOCK IN"}</button>
                             <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓ FINISH</button>
                           </div>
                           <TaskNotes task={t} onSaveNote={saveTaskNote} />
@@ -2236,7 +2232,8 @@ function CommandWeeklyTaskTracker() {
                 {activeTasks.map((t) => {
                   const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
                   const currentUid = window.auth?.currentUser?.uid;
-                  const running = t.runningWorkers && t.runningWorkers[currentUid];
+                  const isCurrentUserRunning = t.runningWorkers && t.runningWorkers[currentUid];
+                  const isAnyoneRunning = t.runningWorkers && Object.keys(t.runningWorkers).length > 0;
                   const ms = totalTaskMs(t, nowTs);
                   const thisWeek = inActiveWeek(t);
                   return (
@@ -2263,9 +2260,9 @@ function CommandWeeklyTaskTracker() {
                       </div>
                       <div>
                         <div className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-800 rounded px-2.5 py-1 mb-2 w-fit">
-                          <span className="font-mono text-xs font-bold tabular-nums tracking-wider" style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
+                          <span className="font-mono text-xs font-bold tabular-nums tracking-wider" style={{ color: isAnyoneRunning ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: isAnyoneRunning ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
                           <div className="flex gap-1">
-                            <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={running ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{running ? "❚❚" : "▶"}</button>
+                            <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={isCurrentUserRunning ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{isCurrentUserRunning ? "❚❚" : "▶"}</button>
                             <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓</button>
                           </div>
                         </div>
@@ -2480,7 +2477,7 @@ function CommandWeeklyTaskTracker() {
           <p className="font-mono text-xs text-slate-600 tracking-widest text-center">made by AZ2 Medrano, thank an AZ for showing up to work today :-)</p>
           <div className="flex flex-wrap justify-center gap-4">
               <button onClick={() => setManagingLabels(true)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-slate-500 hover:text-white transition-colors border border-slate-800 bg-slate-900">[ MANAGE LABELS ]</button>
-              <button onClick={() => setManagingLabels(false) || setShowChangeNameModal(true)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-teal-400 hover:text-white transition-colors border border-slate-800 bg-slate-900">[ CHANGE NAME ]</button>
+              <button onClick={() => setShowChangeNameModal(true)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-teal-400 hover:text-white transition-colors border border-slate-800 bg-slate-900">[ CHANGE NAME ]</button>
               <button onClick={() => triggerAction('reset', null)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-slate-500 hover:text-rose-500 transition-colors border border-slate-800 bg-slate-900">[ FACTORY RESET ]</button>
               {!askingName && window.auth && (
                   <button onClick={() => triggerAction('signout', null)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-rose-400 hover:text-white transition-colors border border-rose-900 bg-rose-950/40">[ SIGN OUT ]</button>
