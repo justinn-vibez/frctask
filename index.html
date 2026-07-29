@@ -708,12 +708,14 @@ function CommandWeeklyTaskTracker() {
 
   const [workCenters, setWorkCenters] = useState(() => {
     const stored = lsGet(WORK_CENTERS_KEY);
-    return Array.isArray(stored) ? stored : ["040", "110", "120", "210", "310", "510", "600"];
+    return Array.isArray(stored) ? stored : ["040"];
   });
   const [selectedWcFilter, setSelectedWcFilter] = useState("ALL");
   const [showWcManager, setShowWcManager] = useState(false);
   const [showUserManager, setShowUserManager] = useState(false);
   const [userEdits, setUserEdits] = useState({});
+  const [roleEditedUids, setRoleEditedUids] = useState(() => new Set());
+  const [wcEditedUids, setWcEditedUids] = useState(() => new Set());
   const [showChangeNameModal, setShowChangeNameModal] = useState(false);
   const [draftNewName, setDraftNewName] = useState("");
   const [newWcDraft, setNewWcDraft] = useState("");
@@ -813,17 +815,22 @@ function CommandWeeklyTaskTracker() {
     lsSet(WORK_CENTERS_KEY, next);
   };
 
+  // Manage Users only ever seeds *display* state here — nothing in this function writes to
+  // Firestore, and a sailor with no workCenters on file stays empty rather than being fabricated
+  // as ["040"], so an untouched sailor can never round-trip a fake default back into the database.
   const openUserManager = () => {
     const initialEdits = {};
     shopSailors.forEach(s => {
       const uid = s.uid || s.id;
-      let wcs = s.workCenters || (s.workCenter ? [s.workCenter] : ["040"]);
+      let wcs = s.workCenters || (s.workCenter ? [s.workCenter] : []);
       initialEdits[uid] = {
         role: s.role || "sailor",
         workCenters: Array.isArray(wcs) ? wcs : [wcs]
       };
     });
     setUserEdits(initialEdits);
+    setRoleEditedUids(new Set());
+    setWcEditedUids(new Set());
     setShowUserManager(true);
   };
 
@@ -835,11 +842,12 @@ function CommandWeeklyTaskTracker() {
         [field]: value
       }
     }));
+    if (field === "role") setRoleEditedUids(prev => new Set(prev).add(uid));
   };
 
   const toggleUserWorkCenterEdit = (uid, wc) => {
     setUserEdits(prev => {
-      const current = prev[uid] || { role: "sailor", workCenters: ["040"] };
+      const current = prev[uid] || { role: "sailor", workCenters: [] };
       let updatedWCs = [...(current.workCenters || [])];
       if (updatedWCs.includes(wc)) {
         updatedWCs = updatedWCs.filter(w => w !== wc);
@@ -851,36 +859,46 @@ function CommandWeeklyTaskTracker() {
         [uid]: { ...current, workCenters: updatedWCs }
       };
     });
+    setWcEditedUids(prev => new Set(prev).add(uid));
   };
 
+  // Only sailors the admin actually touched this session get written — everyone else's
+  // role/workCenters are left completely alone, even though userEdits holds seeded display
+  // values for all of them. This is the fix for work centers silently resetting to 040 on
+  // every "Apply Changes" click.
   const applyAllUserPermissions = () => {
     setShowUserManager(false);
     setErrorAlert("success: User privileges and work centers updated successfully.");
     setTimeout(() => setErrorAlert(null), 4000);
 
+    const touchedUids = new Set([...roleEditedUids, ...wcEditedUids]);
+
     setShopSailors(prev => prev.map(s => {
       const uid = s.uid || s.id;
-      if (userEdits[uid]) {
-        return { 
-          ...s, 
-          role: userEdits[uid].role, 
-          workCenters: userEdits[uid].workCenters, 
-          workCenter: userEdits[uid].workCenters[0] || "040" 
-        };
+      if (!touchedUids.has(uid) || !userEdits[uid]) return s;
+      const next = { ...s };
+      if (roleEditedUids.has(uid)) next.role = userEdits[uid].role;
+      if (wcEditedUids.has(uid)) {
+        next.workCenters = userEdits[uid].workCenters;
+        next.workCenter = userEdits[uid].workCenters[0] || next.workCenter;
       }
-      return s;
+      return next;
     }));
 
     if (window.db && window.dbOperations) {
       const { doc, setDoc } = window.dbOperations;
-      Object.keys(userEdits).forEach(async (uid) => {
+      touchedUids.forEach(async (uid) => {
         const edits = userEdits[uid];
+        if (!edits) return;
+        const payload = {};
+        if (roleEditedUids.has(uid)) payload.role = edits.role;
+        if (wcEditedUids.has(uid)) {
+          payload.workCenters = edits.workCenters;
+          payload.workCenter = edits.workCenters[0] || "040";
+        }
+        if (Object.keys(payload).length === 0) return;
         try {
-          await setDoc(doc(window.db, "users", uid), {
-            role: edits.role,
-            workCenters: edits.workCenters,
-            workCenter: edits.workCenters[0] || "040"
-          }, { merge: true });
+          await setDoc(doc(window.db, "users", uid), payload, { merge: true });
         } catch (err) {
           console.warn(`Background cloud write restricted for ${uid}:`, err);
         }
@@ -1648,7 +1666,7 @@ function CommandWeeklyTaskTracker() {
             <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
               {shopSailors.map(s => {
                 const uid = s.uid || s.id;
-                const currentEdit = userEdits[uid] || { role: s.role || "sailor", workCenters: s.workCenters || ["040"] };
+                const currentEdit = userEdits[uid] || { role: s.role || "sailor", workCenters: s.workCenters || [] };
                 return (
                   <div key={uid} className="bg-slate-800 border border-slate-700 rounded-lg p-3.5 flex flex-col gap-3">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
