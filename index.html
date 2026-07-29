@@ -545,6 +545,149 @@ const saveLabelsToCloud = async (list) => {
   }
 };
 
+// Pure task-analytics reducer — reused for the current user's own tasks, an oversight-selected
+// sailor's tasks, and a division-wide rollup, so all three views compute metrics identically.
+function computeAnalytics(taskList, nowTs) {
+  const done = taskList.filter((t) => t.done && t.completedAt);
+  const now = new Date();
+
+  const byDay30 = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    byDay30.push({ key: dayKey(d), label: d.toLocaleDateString("en-US", { month: "numeric", day: "numeric" }), count: 0 });
+  }
+  const dayMap = {};
+  byDay30.forEach((d) => { dayMap[d.key] = d; });
+  done.forEach((t) => {
+    const key = dayKey(new Date(t.completedAt));
+    if (dayMap[key]) dayMap[key].count += 1;
+  });
+  byDay30.forEach((d, i) => {
+    const w = byDay30.slice(Math.max(0, i - 6), i + 1);
+    d.avg7 = +(w.reduce((s, x) => s + x.count, 0) / w.length).toFixed(2);
+  });
+
+  let onTime = 0, late = 0;
+  const dated = done.filter((t) => t.due);
+  dated.forEach((t) => (completedOnTime(t) ? onTime++ : late++));
+  const leads = dated.map((t) => leadDays(t));
+  const sortedLeads = [...leads].sort((a, b) => a - b);
+  const medianLead = sortedLeads.length ? sortedLeads.length % 2 ? sortedLeads[(sortedLeads.length - 1) / 2] : (sortedLeads[sortedLeads.length / 2 - 1] + sortedLeads[sortedLeads.length / 2]) / 2 : null;
+
+  const leadPerTask = dated.sort((a, b) => ((a.completedAt || "") < (b.completedAt || "") ? -1 : 1)).slice(-12).map((t) => {
+      const lead = +leadDays(t).toFixed(1);
+      return { name: t.text.length > 22 ? t.text.slice(0, 22) + "…" : t.text, fullName: t.text, lead, fill: lead >= 0 ? ACCENT.teal : ACCENT.rose };
+  });
+
+  const priorityReliability = PRIORITIES.map((p) => {
+    const group = dated.filter((t) => t.priority === p.id);
+    const pOnTime = group.filter((t) => completedOnTime(t)).length;
+    return { label: p.label === "DO A FUCKIN SAP" ? "ASAP" : p.label, onTime: pOnTime, late: group.length - pOnTime };
+  });
+
+  const byWeekday = WEEKDAYS.map((w) => ({ label: w, count: 0 }));
+  done.forEach((t) => { byWeekday[(new Date(t.completedAt).getDay() + 6) % 7].count += 1; });
+  const busiestDay = byWeekday.reduce((a, b) => (b.count > a.count ? b : a), byWeekday[0]);
+
+  const blocks = ["00–03", "03–06", "06–09", "09–12", "12–15", "15–18", "18–21", "21–24"];
+  const byHourBlock = blocks.map((b) => ({ label: b, count: 0 }));
+  done.forEach((t) => { byHourBlock[Math.floor(new Date(t.completedAt).getHours() / 3)].count += 1; });
+  const peakBlock = byHourBlock.reduce((a, b) => (b.count > a.count ? b : a), byHourBlock[0]);
+
+  const timedDone = done.filter((t) => totalTaskMs(t, nowTs) > 0);
+  const labelGroups = {};
+  timedDone.forEach((t) => {
+    const l = t.label || "Unlabeled";
+    if (!labelGroups[l]) labelGroups[l] = { totalMs: 0, count: 0 };
+    labelGroups[l].totalMs += totalTaskMs(t, nowTs);
+    labelGroups[l].count += 1;
+  });
+  const timeByLabel = Object.keys(labelGroups).map((l) => ({
+    label: l,
+    avgMin: +(labelGroups[l].totalMs / labelGroups[l].count / 60000).toFixed(1),
+    totalMin: +(labelGroups[l].totalMs / 60000).toFixed(1),
+    count: labelGroups[l].count
+  })).sort((a, b) => b.avgMin - a.avgMin);
+  const slowest = timeByLabel.length ? timeByLabel[0] : null;
+
+  const doneDays = new Set(done.map((t) => dayKey(new Date(t.completedAt))));
+  const isWeekday = (d) => { const day = d.getDay(); return day >= 1 && day <= 5; };
+
+  let currentStreak = 0;
+  let checkDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (!isWeekday(checkDate)) {
+    while (!isWeekday(checkDate)) {
+      checkDate.setDate(checkDate.getDate() - 1);
+    }
+  }
+
+  for (let i = 0; ; i++) {
+    const d = new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate() - i);
+    while (!isWeekday(d)) {
+      d.setDate(d.getDate() - 1);
+    }
+    const k = dayKey(d);
+    if (doneDays.has(k)) {
+      currentStreak++;
+    } else if (i === 0) {
+      continue;
+    } else {
+      break;
+    }
+  }
+
+  let bestStreak = 0, run = 0, prevWeekday = null;
+  [...doneDays].sort().forEach((k) => {
+    const [y, m, d] = k.split("-").map(Number);
+    const cur = new Date(y, m - 1, d);
+    if (!isWeekday(cur)) return;
+
+    if (!prevWeekday) {
+      run = 1;
+    } else {
+      let diffDays = 0;
+      let tempDate = new Date(prevWeekday);
+      while (tempDate < cur) {
+        tempDate.setDate(tempDate.getDate() + 1);
+        if (isWeekday(tempDate)) diffDays++;
+      }
+      run = diffDays === 1 ? run + 1 : 1;
+    }
+    bestStreak = Math.max(bestStreak, run);
+    prevWeekday = cur;
+  });
+
+  const last7 = byDay30.slice(-7).reduce((s, d) => s + d.count, 0);
+  const prev7 = byDay30.slice(-14, -7).reduce((s, d) => s + d.count, 0);
+  const weekDelta = prev7 > 0 ? Math.round(((last7 - prev7) / prev7) * 100) : null;
+
+  const totalTrackedMs = taskList.reduce((s, t) => s + totalTaskMs(t, nowTs), 0);
+
+  return {
+    byDay30, onTime, late, medianLead, leadPerTask, priorityReliability, byWeekday, busiestDay, byHourBlock, peakBlock,
+    currentStreak, bestStreak, last7, prev7, weekDelta, totalDone: done.length, totalTrackedMs, timedCount: timedDone.length, timeByLabel, slowest
+  };
+}
+
+// Pure man-hour-by-contributor reducer — same shape used for the current user's tasks and a division rollup.
+function computeManHourDistribution(taskList, shopSailors, currentUid, currentUserName, nowTs) {
+  const contributorMap = {};
+  taskList.forEach(t => {
+    if (t.contributors) {
+      Object.keys(t.contributors).forEach(u => {
+        const sailor = shopSailors.find(s => (s.uid || s.id) === u);
+        const name = sailor ? (sailor.displayName || sailor.email) : (u === currentUid ? currentUserName : "Maintainer");
+        const totalMs = (t.contributors[u] || 0) + (t.runningWorkers && t.runningWorkers[u] ? Math.min(nowTs - new Date(t.runningWorkers[u]).getTime(), MAX_SESSION_MS) : 0);
+        const hours = +(totalMs / 3600000).toFixed(2);
+        if (hours > 0) {
+          contributorMap[name] = (contributorMap[name] || 0) + hours;
+        }
+      });
+    }
+  });
+  return Object.keys(contributorMap).map(name => ({ name, hours: contributorMap[name] }));
+}
+
 function CommandWeeklyTaskTracker() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -557,6 +700,10 @@ function CommandWeeklyTaskTracker() {
   const [shopSailors, setShopSailors] = useState([]);
   const [selectedSailorUid, setSelectedSailorUid] = useState(null);
   const [sailorTasks, setSailorTasks] = useState([]);
+  const [sailorSubTab, setSailorSubTab] = useState("active");
+  const [showDivisionRollup, setShowDivisionRollup] = useState(false);
+  const [divisionTasksMap, setDivisionTasksMap] = useState({});
+  const [oversightChartRange, setOversightChartRange] = useState(14);
   const [assignedWorkerUid, setAssignedWorkerUid] = useState("");
 
   const [workCenters, setWorkCenters] = useState(() => {
@@ -959,6 +1106,7 @@ function CommandWeeklyTaskTracker() {
 
   // Admin Oversight Task Listener (Fetches selected sailor's tasks directly in the Admin Panel)
   useEffect(() => {
+    setSailorSubTab("active");
     if (tab !== "oversight" || !selectedSailorUid || !window.db || !window.dbOperations) return;
     const { collection, onSnapshot } = window.dbOperations;
     const unsub = onSnapshot(collection(window.db, "users", selectedSailorUid, "tasks"), (snap) => {
@@ -967,6 +1115,29 @@ function CommandWeeklyTaskTracker() {
     });
     return () => unsub();
   }, [tab, selectedSailorUid]);
+
+  // Division-Wide Rollup: one onSnapshot listener per WC-filtered sailor's task collection,
+  // keyed by uid so different sailors' task ids can never collide when merged. Only runs while
+  // the toggle is on, and fully tears down (and clears state) when it's switched off.
+  const filteredSailorUidsKey = filteredShopSailors.map(s => s.uid || s.id).join(",");
+  useEffect(() => {
+    if (tab !== "oversight" || !showDivisionRollup || !window.db || !window.dbOperations) {
+      setDivisionTasksMap({});
+      return;
+    }
+    const { collection, onSnapshot } = window.dbOperations;
+    const uids = filteredSailorUidsKey ? filteredSailorUidsKey.split(",") : [];
+    const unsubs = uids.map(uid => onSnapshot(collection(window.db, "users", uid, "tasks"), (snap) => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setDivisionTasksMap(prev => ({ ...prev, [uid]: list }));
+    }, (err) => console.error("Division rollup listener error for " + uid + ":", err)));
+    return () => {
+      unsubs.forEach(unsub => unsub());
+      setDivisionTasksMap({});
+    };
+  }, [tab, showDivisionRollup, filteredSailorUidsKey]);
+
+  const divisionTasks = useMemo(() => Object.values(divisionTasksMap).flat(), [divisionTasksMap]);
 
   const weekTasks = tasks.filter(inActiveWeek);
   const weekTotal = weekTasks.length, weekCompleted = weekTasks.filter((t) => t.done).length;
@@ -1320,23 +1491,12 @@ function CommandWeeklyTaskTracker() {
     });
   };
 
-  const manHourDistribution = useMemo(() => {
-    const contributorMap = {};
-    tasks.forEach(t => {
-      if (t.contributors) {
-        Object.keys(t.contributors).forEach(u => {
-          const sailor = shopSailors.find(s => (s.uid || s.id) === u);
-          const name = sailor ? (sailor.displayName || sailor.email) : (u === window.auth?.currentUser?.uid ? userName : "Maintainer");
-          const totalMs = (t.contributors[u] || 0) + (t.runningWorkers && t.runningWorkers[u] ? Math.min(nowTs - new Date(t.runningWorkers[u]).getTime(), MAX_SESSION_MS) : 0);
-          const hours = +(totalMs / 3600000).toFixed(2);
-          if (hours > 0) {
-            contributorMap[name] = (contributorMap[name] || 0) + hours;
-          }
-        });
-      }
-    });
-    return Object.keys(contributorMap).map(name => ({ name, hours: contributorMap[name] }));
-  }, [tasks, shopSailors, nowTs, userName]);
+  const currentUid = window.auth?.currentUser?.uid;
+
+  const manHourDistribution = useMemo(
+    () => computeManHourDistribution(tasks, shopSailors, currentUid, userName, nowTs),
+    [tasks, shopSailors, currentUid, userName, nowTs]
+  );
 
   const sailorManHourDistribution = useMemo(() => {
     if (!selectedSailorUid) return [];
@@ -1356,127 +1516,13 @@ function CommandWeeklyTaskTracker() {
     return Object.keys(contributorMap).map(name => ({ name, hours: contributorMap[name] }));
   }, [sailorTasks, tasks, selectedSailorUid, shopSailors, nowTs]);
 
-  const analytics = useMemo(() => {
-    const done = tasks.filter((t) => t.done && t.completedAt);
-    const now = new Date();
-
-    const byDay30 = [];
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-      byDay30.push({ key: dayKey(d), label: d.toLocaleDateString("en-US", { month: "numeric", day: "numeric" }), count: 0 });
-    }
-    const dayMap = {};
-    byDay30.forEach((d) => { dayMap[d.key] = d; });
-    done.forEach((t) => {
-      const key = dayKey(new Date(t.completedAt));
-      if (dayMap[key]) dayMap[key].count += 1;
-    });
-    byDay30.forEach((d, i) => {
-      const w = byDay30.slice(Math.max(0, i - 6), i + 1);
-      d.avg7 = +(w.reduce((s, x) => s + x.count, 0) / w.length).toFixed(2);
-    });
-
-    let onTime = 0, late = 0;
-    const dated = done.filter((t) => t.due);
-    dated.forEach((t) => (completedOnTime(t) ? onTime++ : late++));
-    const leads = dated.map((t) => leadDays(t));
-    const sortedLeads = [...leads].sort((a, b) => a - b);
-    const medianLead = sortedLeads.length ? sortedLeads.length % 2 ? sortedLeads[(sortedLeads.length - 1) / 2] : (sortedLeads[sortedLeads.length / 2 - 1] + sortedLeads[sortedLeads.length / 2]) / 2 : null;
-
-    const leadPerTask = dated.sort((a, b) => ((a.completedAt || "") < (b.completedAt || "") ? -1 : 1)).slice(-12).map((t) => {
-        const lead = +leadDays(t).toFixed(1);
-        return { name: t.text.length > 22 ? t.text.slice(0, 22) + "…" : t.text, fullName: t.text, lead, fill: lead >= 0 ? ACCENT.teal : ACCENT.rose };
-    });
-
-    const priorityReliability = PRIORITIES.map((p) => {
-      const group = dated.filter((t) => t.priority === p.id);
-      const pOnTime = group.filter((t) => completedOnTime(t)).length;
-      return { label: p.label === "DO A FUCKIN SAP" ? "ASAP" : p.label, onTime: pOnTime, late: group.length - pOnTime };
-    });
-
-    const byWeekday = WEEKDAYS.map((w) => ({ label: w, count: 0 }));
-    done.forEach((t) => { byWeekday[(new Date(t.completedAt).getDay() + 6) % 7].count += 1; });
-    const busiestDay = byWeekday.reduce((a, b) => (b.count > a.count ? b : a), byWeekday[0]);
-
-    const blocks = ["00–03", "03–06", "06–09", "09–12", "12–15", "15–18", "18–21", "21–24"];
-    const byHourBlock = blocks.map((b) => ({ label: b, count: 0 }));
-    done.forEach((t) => { byHourBlock[Math.floor(new Date(t.completedAt).getHours() / 3)].count += 1; });
-    const peakBlock = byHourBlock.reduce((a, b) => (b.count > a.count ? b : a), byHourBlock[0]);
-
-    const timedDone = done.filter((t) => totalTaskMs(t, nowTs) > 0);
-    const labelGroups = {};
-    timedDone.forEach((t) => {
-      const l = t.label || "Unlabeled";
-      if (!labelGroups[l]) labelGroups[l] = { totalMs: 0, count: 0 };
-      labelGroups[l].totalMs += totalTaskMs(t, nowTs);
-      labelGroups[l].count += 1;
-    });
-    const timeByLabel = Object.keys(labelGroups).map((l) => ({ 
-      label: l, 
-      avgMin: +(labelGroups[l].totalMs / labelGroups[l].count / 60000).toFixed(1), 
-      totalMin: +(labelGroups[l].totalMs / 60000).toFixed(1), 
-      count: labelGroups[l].count 
-    })).sort((a, b) => b.avgMin - a.avgMin);
-    const slowest = timeByLabel.length ? timeByLabel[0] : null;
-
-    const doneDays = new Set(done.map((t) => dayKey(new Date(t.completedAt))));
-    const isWeekday = (d) => { const day = d.getDay(); return day >= 1 && day <= 5; };
-
-    let currentStreak = 0;
-    let checkDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    if (!isWeekday(checkDate)) {
-      while (!isWeekday(checkDate)) {
-        checkDate.setDate(checkDate.getDate() - 1);
-      }
-    }
-
-    for (let i = 0; ; i++) {
-      const d = new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate() - i);
-      while (!isWeekday(d)) {
-        d.setDate(d.getDate() - 1);
-      }
-      const k = dayKey(d);
-      if (doneDays.has(k)) {
-        currentStreak++;
-      } else if (i === 0) {
-        continue;
-      } else {
-        break;
-      }
-    }
-
-    let bestStreak = 0, run = 0, prevWeekday = null;
-    [...doneDays].sort().forEach((k) => {
-      const [y, m, d] = k.split("-").map(Number);
-      const cur = new Date(y, m - 1, d);
-      if (!isWeekday(cur)) return;
-
-      if (!prevWeekday) {
-        run = 1;
-      } else {
-        let diffDays = 0;
-        let tempDate = new Date(prevWeekday);
-        while (tempDate < cur) {
-          tempDate.setDate(tempDate.getDate() + 1);
-          if (isWeekday(tempDate)) diffDays++;
-        }
-        run = diffDays === 1 ? run + 1 : 1;
-      }
-      bestStreak = Math.max(bestStreak, run);
-      prevWeekday = cur;
-    });
-
-    const last7 = byDay30.slice(-7).reduce((s, d) => s + d.count, 0);
-    const prev7 = byDay30.slice(-14, -7).reduce((s, d) => s + d.count, 0);
-    const weekDelta = prev7 > 0 ? Math.round(((last7 - prev7) / prev7) * 100) : null;
-
-    const totalTrackedMs = tasks.reduce((s, t) => s + totalTaskMs(t, nowTs), 0);
-
-    return {
-      byDay30, onTime, late, medianLead, leadPerTask, priorityReliability, byWeekday, busiestDay, byHourBlock, peakBlock,
-      currentStreak, bestStreak, last7, prev7, weekDelta, totalDone: done.length, totalTrackedMs, timedCount: timedDone.length, timeByLabel, slowest
-    };
-  }, [tasks, nowTs]);
+  const analytics = useMemo(() => computeAnalytics(tasks, nowTs), [tasks, nowTs]);
+  const sailorAnalytics = useMemo(() => computeAnalytics(sailorTasks, nowTs), [sailorTasks, nowTs]);
+  const divisionAnalytics = useMemo(() => computeAnalytics(divisionTasks, nowTs), [divisionTasks, nowTs]);
+  const divisionManHourDistribution = useMemo(
+    () => computeManHourDistribution(divisionTasks, shopSailors, currentUid, userName, nowTs),
+    [divisionTasks, shopSailors, currentUid, userName, nowTs]
+  );
 
   const renderModals = () => {
     if (askingName) {
@@ -1981,6 +2027,9 @@ function CommandWeeklyTaskTracker() {
   const onTimeRate = analytics.onTime + analytics.late > 0 ? Math.round((analytics.onTime / (analytics.onTime + analytics.late)) * 100) : null;
   const canAssignTasks = userRole === "supervisor" || userRole === "admin";
 
+  const oversightAnalytics = showDivisionRollup ? divisionAnalytics : sailorAnalytics;
+  const oversightOnTimeRate = oversightAnalytics.onTime + oversightAnalytics.late > 0 ? Math.round((oversightAnalytics.onTime / (oversightAnalytics.onTime + oversightAnalytics.late)) * 100) : null;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 px-4 py-8 sm:px-8 flex flex-col relative">
       <SystemClock />
@@ -2098,42 +2147,72 @@ function CommandWeeklyTaskTracker() {
                     </div>
                   </div>
 
-                  {/* SAILOR TASKS & TIMERS VIEW (ADMIN PANEL OVERSIGHT) */}
-                  <div className="space-y-3">
-                    <h4 className="font-mono text-xs tracking-widest text-teal-400">ASSIGNED TASKS & LIVE TIMERS</h4>
-                    {sailorTasks.length === 0 ? (
-                      <p className="text-xs text-slate-500 font-mono text-center py-4 bg-slate-950 rounded border border-slate-800">No tasks currently assigned to this sailor.</p>
-                    ) : (
-                      sailorTasks.map((t) => {
-                        const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
-                        const currentUid = window.auth?.currentUser?.uid;
-                        const isCurrentUserRunning = t.runningWorkers && t.runningWorkers[currentUid];
-                        const isAnyoneRunning = t.runningWorkers && Object.keys(t.runningWorkers).length > 0;
-                        const ms = totalTaskMs(t, nowTs);
-                        return (
-                          <div key={t.id} className="bg-slate-950 border border-slate-800 rounded-lg p-4" style={{ borderLeft: "4px solid " + pm.color }}>
-                            <div className="flex items-start gap-3">
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-sm sm:text-base text-white ${t.done ? 'line-through text-slate-500' : ''}`}>{t.text}</p>
-                                <div className="flex flex-wrap items-center gap-2 mt-2">
-                                  {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
-                                  <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
-                                  {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
-                                </div>
-                                {!t.done && (
+                  {/* WORKER PROFILE SUB-TABS (ADMIN PANEL OVERSIGHT) */}
+                  <div className="flex gap-2 bg-slate-950 border border-slate-800 rounded-lg p-1 w-fit">
+                    <button onClick={() => setSailorSubTab("active")} className="font-mono text-[10px] font-bold tracking-widest px-4 py-2 rounded transition-colors" style={sailorSubTab === "active" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>
+                      ACTIVE TASKS ({sailorTasks.filter(t => !t.done).length})
+                    </button>
+                    <button onClick={() => setSailorSubTab("history")} className="font-mono text-[10px] font-bold tracking-widest px-4 py-2 rounded transition-colors" style={sailorSubTab === "history" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>
+                      COMPLETED HISTORY ({sailorTasks.filter(t => t.done).length})
+                    </button>
+                  </div>
+
+                  {sailorSubTab === "active" ? (
+                    <div className="space-y-3">
+                      <h4 className="font-mono text-xs tracking-widest text-teal-400">ACTIVE TASKS & LIVE TIMERS</h4>
+                      {sailorTasks.filter(t => !t.done).length === 0 ? (
+                        <p className="text-xs text-slate-500 font-mono text-center py-4 bg-slate-950 rounded border border-slate-800">No active tasks currently assigned to this sailor.</p>
+                      ) : (
+                        sailorTasks.filter(t => !t.done).map((t) => {
+                          const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
+                          const currentUid = window.auth?.currentUser?.uid;
+                          const isCurrentUserRunning = t.runningWorkers && t.runningWorkers[currentUid];
+                          const isAnyoneRunning = t.runningWorkers && Object.keys(t.runningWorkers).length > 0;
+                          const ms = totalTaskMs(t, nowTs);
+                          return (
+                            <div key={t.id} className="bg-slate-950 border border-slate-800 rounded-lg p-4" style={{ borderLeft: "4px solid " + pm.color }}>
+                              <div className="flex items-start gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm sm:text-base text-white">{t.text}</p>
+                                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                                    {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
+                                    <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
+                                    {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
+                                  </div>
                                   <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
                                     <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: isAnyoneRunning ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: isAnyoneRunning ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
                                     <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={isCurrentUserRunning ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{isCurrentUserRunning ? "❚❚ CLOCK OUT" : ms > 0 ? "▶ RESUME" : "▶ CLOCK IN"}</button>
                                   </div>
-                                )}
-                                <TaskNotes task={t} onSaveNote={saveTaskNote} />
+                                  <TaskNotes task={t} onSaveNote={saveTaskNote} />
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <h4 className="font-mono text-xs tracking-widest text-teal-400">COMPLETED HISTORY</h4>
+                      {sailorTasks.filter(t => t.done).length === 0 ? (
+                        <p className="text-xs text-slate-500 font-mono text-center py-4 bg-slate-950 rounded border border-slate-800">No completed tasks logged for this sailor yet.</p>
+                      ) : (
+                        sailorTasks.filter(t => t.done).sort((a, b) => ((b.completedAt || "") < (a.completedAt || "") ? -1 : 1)).map((t) => {
+                          const pm = priorityMeta(t.priority);
+                          return (
+                            <div key={t.id} className="bg-slate-950 border border-slate-800 rounded-lg p-3" style={{ borderLeft: "4px solid " + pm.color + "55" }}>
+                              <p className="text-sm text-slate-400 line-through">{t.text}</p>
+                              <div className="flex gap-2 mt-1.5 font-mono text-[10px] tracking-widest text-slate-500">
+                                <span style={{ color: ACCENT.teal }}>✓ {fmtStamp(t.completedAt)}</span>
+                                {totalTaskMs(t, nowTs) > 0 && <span style={{ color: ACCENT.amber }}>⏱ {fmtDuration(totalTaskMs(t, nowTs))}</span>}
+                              </div>
+                              <TaskNotes task={t} onSaveNote={saveTaskNote} compact />
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
 
                   <div className="bg-slate-950 border border-slate-800 rounded-lg p-4">
                     <h4 className="font-mono text-xs tracking-widest text-teal-400 mb-2">INDIVIDUAL MAN-HOUR BREAKDOWN</h4>
@@ -2149,6 +2228,109 @@ function CommandWeeklyTaskTracker() {
                       </ResponsiveContainer>
                     ) : (
                       <p className="text-xs text-slate-500 font-mono text-center py-4">No clocked hours recorded for this sailor yet.</p>
+                    )}
+                  </div>
+
+                  {/* PER-WORKER ANALYTICS DASHBOARD, WITH DIVISION-WIDE ROLLUP TOGGLE */}
+                  <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 space-y-4">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div>
+                        <h4 className="font-mono text-xs tracking-widest text-teal-400">
+                          {showDivisionRollup ? "DIVISION-WIDE ROLLUP" : "INDIVIDUAL ANALYTICS"}
+                        </h4>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          {showDivisionRollup
+                            ? `Aggregated across ${filteredShopSailors.length} sailor${filteredShopSailors.length === 1 ? "" : "s"} in ${selectedWcFilter === "ALL" ? "all work centers" : "WC " + selectedWcFilter}.`
+                            : `Scoped to ${selectedSailorObj.displayName || selectedSailorObj.email} only.`}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setShowDivisionRollup(v => !v)}
+                        className="font-mono text-[10px] font-bold tracking-widest px-3 py-1.5 rounded border transition-colors shrink-0"
+                        style={showDivisionRollup ? { backgroundColor: ACCENT.teal, color: "#04241f", borderColor: ACCENT.teal } : { color: "#94a3b8", borderColor: "#334155" }}
+                      >
+                        {showDivisionRollup ? "✓ " : ""}DIVISION-WIDE ROLLUP
+                      </button>
+                    </div>
+
+                    {oversightAnalytics.totalDone === 0 ? (
+                      <p className="text-xs text-slate-500 font-mono text-center py-6">
+                        No completed tasks yet for this {showDivisionRollup ? "work center filter" : "sailor"} — analytics populate as tasks are finished.
+                      </p>
+                    ) : (
+                      <React.Fragment>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <KpiCard label="COMPLETED" value={oversightAnalytics.totalDone} sub="LIFETIME" />
+                          <KpiCard label="ON-TIME RATE" value={oversightOnTimeRate !== null ? oversightOnTimeRate + "%" : "—"} sub={oversightAnalytics.onTime + " ON TIME / " + oversightAnalytics.late + " LATE"} color={oversightOnTimeRate === null ? "#64748b" : oversightOnTimeRate >= 80 ? ACCENT.teal : oversightOnTimeRate >= 50 ? ACCENT.amber : ACCENT.rose} />
+                          <KpiCard label="MEDIAN LEAD" value={oversightAnalytics.medianLead !== null ? Math.abs(oversightAnalytics.medianLead).toFixed(1) + "d" : "—"} sub={oversightAnalytics.medianLead === null ? "NO DATED TASKS" : oversightAnalytics.medianLead >= 0 ? "EARLY (TYPICAL)" : "LATE (TYPICAL)"} color={oversightAnalytics.medianLead === null ? "#64748b" : oversightAnalytics.medianLead >= 0 ? ACCENT.teal : ACCENT.rose} />
+                          <KpiCard label="TIME TRACKED" value={oversightAnalytics.totalTrackedMs > 0 ? fmtMinutes(oversightAnalytics.totalTrackedMs) : "—"} sub="TOTAL HOURS" color={oversightAnalytics.totalTrackedMs > 0 ? ACCENT.teal : "#64748b"} />
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <ChartCard wide title={"DAILY THROUGHPUT — LAST " + oversightChartRange + " DAYS"} subtitle="Bars: tasks completed per day. Line: 7-day rolling average." action={<div className="flex gap-1">{[14, 30].map((r) => (<button key={r} onClick={() => setOversightChartRange(r)} className="font-mono text-[10px] font-bold tracking-widest px-2.5 py-1 rounded" style={oversightChartRange === r ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b", border: "1px solid #334155" }}>{r}D</button>))}</div>}>
+                            <ResponsiveContainer width="100%" height={190}>
+                              <ComposedChart data={oversightAnalytics.byDay30.slice(-oversightChartRange)} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                                <XAxis dataKey="label" tick={axisTick} interval={oversightChartRange === 30 ? 3 : 1} />
+                                <YAxis allowDecimals={false} tick={axisTick} />
+                                <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
+                                <Bar dataKey="count" name="Completed" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
+                                <Line type="monotone" dataKey="avg7" name="7-day avg" stroke={ACCENT.amber} strokeWidth={2} dot={false} />
+                              </ComposedChart>
+                            </ResponsiveContainer>
+                          </ChartCard>
+
+                          <ChartCard title="TIME EFFICIENCY BY CATEGORY" subtitle="Average (teal) and total (amber) clocked minutes per label.">
+                            {oversightAnalytics.timeByLabel.length > 0 ? (
+                              <ResponsiveContainer width="100%" height={190}>
+                                <BarChart data={oversightAnalytics.timeByLabel} margin={{ top: 16, right: 4, left: -20, bottom: 0 }}>
+                                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                                  <XAxis dataKey="label" tick={axisTickLight} />
+                                  <YAxis tick={axisTick} label={{ value: "minutes", angle: -90, position: "insideLeft", fill: "#475569", fontSize: 9, fontFamily: "monospace" }} />
+                                  <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v, name) => [v + " min", name]} />
+                                  <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
+                                  <Bar dataKey="avgMin" name="Avg per task" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
+                                  <Bar dataKey="totalMin" name="Total" fill={ACCENT.amber} radius={[3, 3, 0, 0]} />
+                                </BarChart>
+                              </ResponsiveContainer>
+                            ) : (
+                              <p className="text-xs text-slate-600 font-mono py-6 text-center">No clocked time on completed tasks yet.</p>
+                            )}
+                          </ChartCard>
+
+                          <ChartCard title="RELIABILITY BY PRIORITY" subtitle="On-time (teal) vs late (rose) per tier.">
+                            <ResponsiveContainer width="100%" height={190}>
+                              <BarChart data={oversightAnalytics.priorityReliability} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                                <XAxis dataKey="label" tick={axisTick} />
+                                <YAxis allowDecimals={false} tick={axisTick} />
+                                <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
+                                <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
+                                <Bar dataKey="onTime" name="On time" stackId="r" fill={ACCENT.teal} />
+                                <Bar dataKey="late" name="Late" stackId="r" fill={ACCENT.rose} radius={[3, 3, 0, 0]} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </ChartCard>
+
+                          {showDivisionRollup && (
+                            <ChartCard title="MAN-HOUR DISTRIBUTION BY CONTRIBUTOR" subtitle="Total logged hours per maintainer across the filtered work center(s).">
+                              {divisionManHourDistribution.length > 0 ? (
+                                <ResponsiveContainer width="100%" height={190}>
+                                  <BarChart data={divisionManHourDistribution} margin={{ top: 16, right: 4, left: -20, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                                    <XAxis dataKey="name" tick={axisTickLight} />
+                                    <YAxis tick={axisTick} allowDecimals={false} />
+                                    <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v) => [v + " hours", "Hours"]} />
+                                    <Bar dataKey="hours" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
+                                  </BarChart>
+                                </ResponsiveContainer>
+                              ) : (
+                                <p className="text-xs text-slate-600 font-mono py-6 text-center">No clocked hours in this rollup yet.</p>
+                              )}
+                            </ChartCard>
+                          )}
+                        </div>
+                      </React.Fragment>
                     )}
                   </div>
                 </div>
