@@ -751,6 +751,7 @@ function CommandWeeklyTaskTracker() {
 
   const handleProvisionAccount = async (e) => {
     e.preventDefault();
+    if (userRole !== "admin") return;
     setProvSuccess(null);
     if (!newProvUser.trim() || !newProvPass.trim()) {
       setProvSuccess({ type: "error", text: "Username and password are required for provisioning." });
@@ -788,6 +789,7 @@ function CommandWeeklyTaskTracker() {
   };
 
   const createWorkCenterCode = () => {
+    if (userRole !== "admin") return;
     const code = newWcDraft.trim().toUpperCase();
     if (!code || workCenters.includes(code)) return;
     const next = [...workCenters, code];
@@ -797,12 +799,14 @@ function CommandWeeklyTaskTracker() {
   };
 
   const deleteWorkCenterCode = (code) => {
+    if (userRole !== "admin") return;
     const next = workCenters.filter(w => w !== code);
     setWorkCenters(next);
     lsSet(WORK_CENTERS_KEY, next);
   };
 
   const openUserManager = () => {
+    if (userRole !== "admin") return;
     const initialEdits = {};
     shopSailors.forEach(s => {
       const uid = s.uid || s.id;
@@ -846,8 +850,8 @@ function CommandWeeklyTaskTracker() {
     setWcEditedUids(prev => new Set(prev).add(uid));
   };
 
-  // Fixed: Awaits Firestore updates and surfaces errors if Firestore rules reject the write.
   const applyAllUserPermissions = async () => {
+    if (userRole !== "admin") return;
     const touchedUids = new Set([...roleEditedUids, ...wcEditedUids]);
     if (touchedUids.size === 0) {
       setShowUserManager(false);
@@ -941,7 +945,6 @@ function CommandWeeklyTaskTracker() {
   const [sortMode, setSortMode] = useState("default");
   const [viewMode, setViewMode] = useState("list");
 
-  // Main Authentication and Real-time Listeners (including live users onSnapshot sync)
   useEffect(() => {
     let unsubscribeAuth = null;
     let unsubscribeTasks = null;
@@ -971,7 +974,6 @@ function CommandWeeklyTaskTracker() {
               }
             }
 
-            // Real-time live sync listener for shop personnel
             if (unsubscribeUsers) unsubscribeUsers();
             unsubscribeUsers = onSnapshot(collection(window.db, "users"), (snapshot) => {
               const sailors = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1102,34 +1104,65 @@ function CommandWeeklyTaskTracker() {
     });
   }, [shopSailors, selectedWcFilter]);
 
+  // Support Work Center Rollups in selectedSailorUid
+  const isWcRollup = selectedSailorUid && selectedSailorUid.startsWith("WCSEL-");
+  const rollupWcCode = isWcRollup ? selectedSailorUid.replace("WCSEL-", "") : null;
+
+  const oversightTargetSailors = useMemo(() => {
+    if (!isWcRollup) return selectedSailorUid ? shopSailors.filter(s => (s.uid || s.id) === selectedSailorUid) : [];
+    if (rollupWcCode === "ALL") return filteredShopSailors;
+    return filteredShopSailors.filter(s => {
+      const wcs = s.workCenters || (s.workCenter ? [s.workCenter] : ["040"]);
+      return wcs.includes(rollupWcCode);
+    });
+  }, [isWcRollup, rollupWcCode, selectedSailorUid, shopSailors, filteredShopSailors]);
+
+  const oversightTargetUidsKey = oversightTargetSailors.map(s => s.uid || s.id).join(",");
+
+  // Admin Oversight Task Listener (Fetches selected sailor's or work center's tasks directly)
   useEffect(() => {
     setSailorSubTab("active");
-    if (tab !== "oversight" || !selectedSailorUid || !window.db || !window.dbOperations) return;
-    const { collection, onSnapshot } = window.dbOperations;
-    const unsub = onSnapshot(collection(window.db, "users", selectedSailorUid, "tasks"), (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setSailorTasks(list);
-    });
-    return () => unsub();
-  }, [tab, selectedSailorUid]);
+    if (tab !== "oversight" || !window.db || !window.dbOperations) return;
+    if (!isWcRollup && !selectedSailorUid) return;
 
-  const filteredSailorUidsKey = filteredShopSailors.map(s => s.uid || s.id).join(",");
+    const { collection, onSnapshot } = window.dbOperations;
+    const uids = isWcRollup ? oversightTargetUidsKey.split(",").filter(Boolean) : [selectedSailorUid];
+
+    if (uids.length === 0) {
+      setSailorTasks([]);
+      return;
+    }
+
+    let tasksMap = {};
+    const unsubs = uids.map(uid => onSnapshot(collection(window.db, "users", uid, "tasks"), (snap) => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data(), assignedTo: uid }));
+      tasksMap[uid] = list;
+      setSailorTasks(Object.values(tasksMap).flat());
+    }, (err) => console.error("Oversight task listener error for " + uid + ":", err)));
+
+    return () => {
+      unsubs.forEach(unsub => unsub());
+      setSailorTasks([]);
+    };
+  }, [tab, selectedSailorUid, isWcRollup, oversightTargetUidsKey]);
+
+  // Division-Wide Rollup listener
   useEffect(() => {
     if (tab !== "oversight" || !showDivisionRollup || !window.db || !window.dbOperations) {
       setDivisionTasksMap({});
       return;
     }
     const { collection, onSnapshot } = window.dbOperations;
-    const uids = filteredSailorUidsKey ? filteredSailorUidsKey.split(",") : [];
+    const uids = filteredShopSailors.map(s => s.uid || s.id);
     const unsubs = uids.map(uid => onSnapshot(collection(window.db, "users", uid, "tasks"), (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data(), assignedTo: uid }));
       setDivisionTasksMap(prev => ({ ...prev, [uid]: list }));
     }, (err) => console.error("Division rollup listener error for " + uid + ":", err)));
     return () => {
       unsubs.forEach(unsub => unsub());
       setDivisionTasksMap({});
     };
-  }, [tab, showDivisionRollup, filteredSailorUidsKey]);
+  }, [tab, showDivisionRollup, filteredShopSailors]);
 
   const divisionTasks = useMemo(() => Object.values(divisionTasksMap).flat(), [divisionTasksMap]);
 
@@ -1495,18 +1528,25 @@ function CommandWeeklyTaskTracker() {
     const contributorMap = {};
     const targetTasks = sailorTasks.length > 0 ? sailorTasks : tasks;
     targetTasks.forEach(t => {
-      if (t.contributors && t.contributors[selectedSailorUid]) {
-        const totalMs = (t.contributors[selectedSailorUid] || 0) + (t.runningWorkers && t.runningWorkers[selectedSailorUid] ? Math.min(nowTs - new Date(t.runningWorkers[selectedSailorUid]).getTime(), MAX_SESSION_MS) : 0);
-        const hours = +(totalMs / 3600000).toFixed(2);
-        if (hours > 0) {
-          const sailor = shopSailors.find(s => (s.uid || s.id) === selectedSailorUid);
-          const name = sailor ? (sailor.displayName || sailor.email) : "Sailor";
-          contributorMap[name] = (contributorMap[name] || 0) + hours;
-        }
+      if (t.contributors) {
+        Object.keys(t.contributors).forEach(u => {
+          if (isWcRollup || t.contributors[selectedSailorUid]) {
+            const checkUid = isWcRollup ? u : selectedSailorUid;
+            if (t.contributors[checkUid]) {
+              const totalMs = (t.contributors[checkUid] || 0) + (t.runningWorkers && t.runningWorkers[checkUid] ? Math.min(nowTs - new Date(t.runningWorkers[checkUid]).getTime(), MAX_SESSION_MS) : 0);
+              const hours = +(totalMs / 3600000).toFixed(2);
+              if (hours > 0) {
+                const sailor = shopSailors.find(s => (s.uid || s.id) === checkUid);
+                const name = sailor ? (sailor.displayName || sailor.email) : "Sailor";
+                contributorMap[name] = (contributorMap[name] || 0) + hours;
+              }
+            }
+          }
+        });
       }
     });
     return Object.keys(contributorMap).map(name => ({ name, hours: contributorMap[name] }));
-  }, [sailorTasks, tasks, selectedSailorUid, shopSailors, nowTs]);
+  }, [sailorTasks, tasks, selectedSailorUid, isWcRollup, shopSailors, nowTs]);
 
   const analytics = useMemo(() => computeAnalytics(tasks, nowTs), [tasks, nowTs]);
   const sailorAnalytics = useMemo(() => computeAnalytics(sailorTasks, nowTs), [sailorTasks, nowTs]);
@@ -1629,7 +1669,7 @@ function CommandWeeklyTaskTracker() {
       );
     }
 
-    if (showUserManager) {
+    if (showUserManager && userRole === "admin") {
       return (
         <ModalOverlay zIndex="z-[80]">
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-2xl shadow-2xl">
@@ -1690,7 +1730,7 @@ function CommandWeeklyTaskTracker() {
       );
     }
 
-    if (showProvisionModal) {
+    if (showProvisionModal && userRole === "admin") {
       return (
         <ModalOverlay zIndex="z-[80]">
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
@@ -1759,7 +1799,7 @@ function CommandWeeklyTaskTracker() {
       );
     }
 
-    if (showWcManager) {
+    if (showWcManager && userRole === "admin") {
       return (
         <ModalOverlay zIndex="z-[80]">
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
@@ -2018,6 +2058,7 @@ function CommandWeeklyTaskTracker() {
 
   const onTimeRate = analytics.onTime + analytics.late > 0 ? Math.round((analytics.onTime / (analytics.onTime + analytics.late)) * 100) : null;
   const canAssignTasks = userRole === "supervisor" || userRole === "admin";
+  const isAdmin = userRole === "admin";
 
   const oversightAnalytics = showDivisionRollup ? divisionAnalytics : sailorAnalytics;
   const oversightOnTimeRate = oversightAnalytics.onTime + oversightAnalytics.late > 0 ? Math.round((oversightAnalytics.onTime / (oversightAnalytics.onTime + oversightAnalytics.late)) * 100) : null;
@@ -2068,17 +2109,19 @@ function CommandWeeklyTaskTracker() {
                   Division Oversight
                 </p>
               </div>
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 w-full md:w-auto">
-                <button onClick={() => setShowProvisionModal(true)} className="h-10 font-mono text-xs font-bold tracking-widest rounded transition-transform active:scale-95 flex items-center justify-center w-full sm:w-48" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
-                  ＋ ADD NEW USER
-                </button>
-                <button onClick={openUserManager} className="h-10 font-mono text-xs tracking-widest rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 flex items-center justify-center w-full sm:w-48">
-                  👥 MANAGE USERS
-                </button>
-                <button onClick={() => setShowWcManager(true)} className="h-10 font-mono text-xs tracking-widest rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 flex items-center justify-center w-full sm:w-48">
-                  ⚙️ MANAGE WORK CENTERS
-                </button>
-              </div>
+              {isAdmin && (
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-2 w-full md:w-auto">
+                  <button onClick={() => setShowProvisionModal(true)} className="h-10 font-mono text-xs font-bold tracking-widest rounded transition-transform active:scale-95 flex items-center justify-center w-full sm:w-48" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
+                    ＋ ADD NEW USER
+                  </button>
+                  <button onClick={openUserManager} className="h-10 font-mono text-xs tracking-widest rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 flex items-center justify-center w-full sm:w-48">
+                    👥 MANAGE USERS
+                  </button>
+                  <button onClick={() => setShowWcManager(true)} className="h-10 font-mono text-xs tracking-widest rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 flex items-center justify-center w-full sm:w-48">
+                    ⚙️ MANAGE WORK CENTERS
+                  </button>
+                </div>
+              )}
             </section>
 
             <section className="bg-slate-900 border border-slate-800 rounded-xl p-6">
@@ -2092,7 +2135,11 @@ function CommandWeeklyTaskTracker() {
                     <span className="font-mono text-[10px] text-slate-400 tracking-widest">WC FILTER:</span>
                     <select 
                       value={selectedWcFilter} 
-                      onChange={(e) => setSelectedWcFilter(e.target.value)} 
+                      onChange={(e) => {
+                        setSelectedWcFilter(e.target.value);
+                        setSelectedSailorUid("WCSEL-" + e.target.value);
+                        setShowDivisionRollup(true);
+                      }} 
                       className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:outline-none font-mono"
                     >
                       <option value="ALL">ALL WORK CENTERS</option>
@@ -2102,39 +2149,59 @@ function CommandWeeklyTaskTracker() {
                 </div>
 
                 <div className="flex items-center gap-2 w-full sm:w-auto max-w-full">
-                  <span className="font-mono text-[10px] text-slate-400 tracking-widest whitespace-nowrap">SELECT SAILOR:</span>
+                  <span className="font-mono text-[10px] text-slate-400 tracking-widest whitespace-nowrap">SELECT SAILOR / WC:</span>
                   <select 
                     value={selectedSailorUid || ""} 
-                    onChange={(e) => setSelectedSailorUid(e.target.value)} 
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedSailorUid(val);
+                      if (val.startsWith("WCSEL-")) {
+                        setShowDivisionRollup(true);
+                        if (val === "WCSEL-ALL") setSelectedWcFilter("ALL");
+                        else setSelectedWcFilter(val.replace("WCSEL-", ""));
+                      } else {
+                        setShowDivisionRollup(false);
+                      }
+                    }} 
                     className="h-10 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none font-mono truncate w-full sm:w-64"
                   >
-                    {filteredShopSailors.length === 0 ? (
-                      <option value="" disabled>No personnel found in filter</option>
-                    ) : (
-                      filteredShopSailors.map((s) => {
-                        const wcText = s.workCenters && s.workCenters.length > 3 
-                                     ? s.workCenters.slice(0, 3).join(", ") + "..." 
-                                     : (s.workCenters ? s.workCenters.join(", ") : "040");
-                        return (
-                          <option key={s.uid || s.id} value={s.uid || s.id}>
-                            {s.displayName || s.email} (WC: {wcText})
-                          </option>
-                        );
-                      })
-                    )}
+                    <optgroup label="Work Center Rollups">
+                      <option value="WCSEL-ALL">🏢 All Work Centers (Division Rollup)</option>
+                      {workCenters.map(wc => <option key={wc} value={"WCSEL-" + wc}>🏢 Work Center Rollup: {wc}</option>)}
+                    </optgroup>
+                    <optgroup label="Individual Sailors">
+                      {filteredShopSailors.length === 0 ? (
+                        <option value="" disabled>No personnel found in filter</option>
+                      ) : (
+                        filteredShopSailors.map((s) => {
+                          const wcText = s.workCenters && s.workCenters.length > 3 
+                                       ? s.workCenters.slice(0, 3).join(", ") + "..." 
+                                       : (s.workCenters ? s.workCenters.join(", ") : "040");
+                          return (
+                            <option key={s.uid || s.id} value={s.uid || s.id}>
+                              👤 {s.displayName || s.email} (WC: {wcText})
+                            </option>
+                          );
+                        })
+                      )}
+                    </optgroup>
                   </select>
                 </div>
               </div>
 
-              {selectedSailorObj && (
+              {(selectedSailorObj || isWcRollup) && (
                 <div className="space-y-6">
                   <div className="flex flex-col md:flex-row items-center gap-6 bg-slate-950 border border-slate-800 rounded-lg p-6">
                     <ProgressRing pct={oversightPct} completed={oversightCompleted} total={oversightTotal} size={130} stroke={12} />
                     <div className="flex-1 text-center md:text-left">
-                      <p className="font-mono text-xs text-slate-500 tracking-widest mb-1">INSPECTING WORKER</p>
-                      <h3 className="text-2xl font-bold text-white mb-1">{selectedSailorObj.displayName || selectedSailorObj.email}</h3>
-                      <p className="font-mono text-xs text-teal-400 tracking-wider mb-3">WORK CENTERS: {selectedSailorObj.workCenters ? selectedSailorObj.workCenters.join(", ") : "040"} · ROLE: {(selectedSailorObj.role || "sailor").toUpperCase()}</p>
-                      <p className="text-xs text-slate-400">{oversightTotal === 0 ? "No active tasks assigned for this week." : `${oversightCompleted} of ${oversightTotal} tasks completed (${oversightPct}%).`}</p>
+                      <p className="font-mono text-xs text-slate-500 tracking-widest mb-1">INSPECTING {isWcRollup ? "WORK CENTER ROLLUP" : "WORKER"}</p>
+                      <h3 className="text-2xl font-bold text-white mb-1">
+                        {isWcRollup ? (rollupWcCode === "ALL" ? "All Work Centers (Division Rollup)" : `Work Center Rollup: ${rollupWcCode}`) : (selectedSailorObj?.displayName || selectedSailorObj?.email)}
+                      </h3>
+                      <p className="font-mono text-xs text-teal-400 tracking-wider mb-3">
+                        {isWcRollup ? `FILTER: ${rollupWcCode}` : `WORK CENTERS: ${selectedSailorObj.workCenters ? selectedSailorObj.workCenters.join(", ") : "040"} · ROLE: ${(selectedSailorObj.role || "sailor").toUpperCase()}`}
+                      </p>
+                      <p className="text-xs text-slate-400">{oversightTotal === 0 ? "No active tasks assigned." : `${oversightCompleted} of ${oversightTotal} tasks completed (${oversightPct}%).`}</p>
                     </div>
                   </div>
 
@@ -2151,7 +2218,7 @@ function CommandWeeklyTaskTracker() {
                     <div className="space-y-3">
                       <h4 className="font-mono text-xs tracking-widest text-teal-400">ACTIVE TASKS & LIVE TIMERS</h4>
                       {sailorTasks.filter(t => !t.done).length === 0 ? (
-                        <p className="text-xs text-slate-500 font-mono text-center py-4 bg-slate-950 rounded border border-slate-800">No active tasks currently assigned to this sailor.</p>
+                        <p className="text-xs text-slate-500 font-mono text-center py-4 bg-slate-950 rounded border border-slate-800">No active tasks currently assigned.</p>
                       ) : (
                         sailorTasks.filter(t => !t.done).map((t) => {
                           const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
@@ -2160,7 +2227,7 @@ function CommandWeeklyTaskTracker() {
                           const isAnyoneRunning = t.runningWorkers && Object.keys(t.runningWorkers).length > 0;
                           const ms = totalTaskMs(t, nowTs);
                           return (
-                            <div key={t.id} className="bg-slate-950 border border-slate-800 rounded-lg p-4" style={{ borderLeft: "4px solid " + pm.color }}>
+                            <div key={t.id + (t.assignedTo || '')} className="bg-slate-950 border border-slate-800 rounded-lg p-4" style={{ borderLeft: "4px solid " + pm.color }}>
                               <div className="flex items-start gap-3">
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm sm:text-base text-white">{t.text}</p>
@@ -2168,6 +2235,7 @@ function CommandWeeklyTaskTracker() {
                                     {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
                                     <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
                                     {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
+                                    <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded bg-teal-950 text-teal-300 border border-teal-800">{getWorkerName(t.assignedTo)}</span>
                                   </div>
                                   <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
                                     <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: isAnyoneRunning ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: isAnyoneRunning ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
@@ -2185,16 +2253,17 @@ function CommandWeeklyTaskTracker() {
                     <div className="space-y-3">
                       <h4 className="font-mono text-xs tracking-widest text-teal-400">COMPLETED HISTORY</h4>
                       {sailorTasks.filter(t => t.done).length === 0 ? (
-                        <p className="text-xs text-slate-500 font-mono text-center py-4 bg-slate-950 rounded border border-slate-800">No completed tasks logged for this sailor yet.</p>
+                        <p className="text-xs text-slate-500 font-mono text-center py-4 bg-slate-950 rounded border border-slate-800">No completed tasks logged.</p>
                       ) : (
                         sailorTasks.filter(t => t.done).sort((a, b) => ((b.completedAt || "") < (a.completedAt || "") ? -1 : 1)).map((t) => {
                           const pm = priorityMeta(t.priority);
                           return (
-                            <div key={t.id} className="bg-slate-950 border border-slate-800 rounded-lg p-3" style={{ borderLeft: "4px solid " + pm.color + "55" }}>
+                            <div key={t.id + (t.assignedTo || '')} className="bg-slate-950 border border-slate-800 rounded-lg p-3" style={{ borderLeft: "4px solid " + pm.color + "55" }}>
                               <p className="text-sm text-slate-400 line-through">{t.text}</p>
                               <div className="flex gap-2 mt-1.5 font-mono text-[10px] tracking-widest text-slate-500">
                                 <span style={{ color: ACCENT.teal }}>✓ {fmtStamp(t.completedAt)}</span>
                                 {totalTaskMs(t, nowTs) > 0 && <span style={{ color: ACCENT.amber }}>⏱ {fmtDuration(totalTaskMs(t, nowTs))}</span>}
+                                <span className="text-teal-400">· {getWorkerName(t.assignedTo)}</span>
                               </div>
                               <TaskNotes task={t} onSaveNote={saveTaskNote} compact />
                             </div>
@@ -2205,7 +2274,7 @@ function CommandWeeklyTaskTracker() {
                   )}
 
                   <div className="bg-slate-950 border border-slate-800 rounded-lg p-4">
-                    <h4 className="font-mono text-xs tracking-widest text-teal-400 mb-2">INDIVIDUAL MAN-HOUR BREAKDOWN</h4>
+                    <h4 className="font-mono text-xs tracking-widest text-teal-400 mb-2">MAN-HOUR BREAKDOWN</h4>
                     {sailorManHourDistribution.length > 0 ? (
                       <ResponsiveContainer width="100%" height={180}>
                         <BarChart data={sailorManHourDistribution} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -2217,34 +2286,28 @@ function CommandWeeklyTaskTracker() {
                         </BarChart>
                       </ResponsiveContainer>
                     ) : (
-                      <p className="text-xs text-slate-500 font-mono text-center py-4">No clocked hours recorded for this sailor yet.</p>
+                      <p className="text-xs text-slate-500 font-mono text-center py-4">No clocked hours recorded.</p>
                     )}
                   </div>
 
+                  {/* PER-WORKER / ROLLUP ANALYTICS DASHBOARD */}
                   <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 space-y-4">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                       <div>
                         <h4 className="font-mono text-xs tracking-widest text-teal-400">
-                          {showDivisionRollup ? "DIVISION-WIDE ROLLUP" : "INDIVIDUAL ANALYTICS"}
+                          {isWcRollup ? "WORK CENTER ROLLUP ANALYTICS" : "INDIVIDUAL ANALYTICS"}
                         </h4>
                         <p className="text-[11px] text-slate-500 mt-0.5">
-                          {showDivisionRollup
-                            ? `Aggregated across ${filteredShopSailors.length} sailor${filteredShopSailors.length === 1 ? "" : "s"} in ${selectedWcFilter === "ALL" ? "all work centers" : "WC " + selectedWcFilter}.`
+                          {isWcRollup
+                            ? `Aggregated across ${oversightTargetSailors.length} sailor${oversightTargetSailors.length === 1 ? "" : "s"}.`
                             : `Scoped to ${selectedSailorObj.displayName || selectedSailorObj.email} only.`}
                         </p>
                       </div>
-                      <button
-                        onClick={() => setShowDivisionRollup(v => !v)}
-                        className="font-mono text-[10px] font-bold tracking-widest px-3 py-1.5 rounded border transition-colors shrink-0"
-                        style={showDivisionRollup ? { backgroundColor: ACCENT.teal, color: "#04241f", borderColor: ACCENT.teal } : { color: "#94a3b8", borderColor: "#334155" }}
-                      >
-                        {showDivisionRollup ? "✓ " : ""}DIVISION-WIDE ROLLUP
-                      </button>
                     </div>
 
                     {oversightAnalytics.totalDone === 0 ? (
                       <p className="text-xs text-slate-500 font-mono text-center py-6">
-                        No completed tasks yet for this {showDivisionRollup ? "work center filter" : "sailor"} — analytics populate as tasks are finished.
+                        No completed tasks yet — analytics populate as tasks are finished.
                       </p>
                     ) : (
                       <React.Fragment>
@@ -2300,24 +2363,6 @@ function CommandWeeklyTaskTracker() {
                               </BarChart>
                             </ResponsiveContainer>
                           </ChartCard>
-
-                          {showDivisionRollup && (
-                            <ChartCard title="MAN-HOUR DISTRIBUTION BY CONTRIBUTOR" subtitle="Total logged hours per maintainer across the filtered work center(s).">
-                              {divisionManHourDistribution.length > 0 ? (
-                                <ResponsiveContainer width="100%" height={190}>
-                                  <BarChart data={divisionManHourDistribution} margin={{ top: 16, right: 4, left: -20, bottom: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                                    <XAxis dataKey="name" tick={axisTickLight} />
-                                    <YAxis tick={axisTick} allowDecimals={false} />
-                                    <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v) => [v + " hours", "Hours"]} />
-                                    <Bar dataKey="hours" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
-                                  </BarChart>
-                                </ResponsiveContainer>
-                              ) : (
-                                <p className="text-xs text-slate-600 font-mono py-6 text-center">No clocked hours in this rollup yet.</p>
-                              )}
-                            </ChartCard>
-                          )}
                         </div>
                       </React.Fragment>
                     )}
