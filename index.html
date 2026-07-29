@@ -1282,6 +1282,24 @@ function CommandWeeklyTaskTracker() {
     return Object.keys(contributorMap).map(name => ({ name, hours: contributorMap[name] }));
   }, [tasks, shopSailors, nowTs, userName]);
 
+  const sailorManHourDistribution = useMemo(() => {
+    if (!selectedSailorUid) return [];
+    const contributorMap = {};
+    const targetTasks = sailorTasks.length > 0 ? sailorTasks : tasks;
+    targetTasks.forEach(t => {
+      if (t.contributors && t.contributors[selectedSailorUid]) {
+        const totalMs = (t.contributors[selectedSailorUid] || 0) + (t.runningWorkers && t.runningWorkers[selectedSailorUid] ? Math.min(nowTs - new Date(t.runningWorkers[selectedSailorUid]).getTime(), MAX_SESSION_MS) : 0);
+        const hours = +(totalMs / 3600000).toFixed(2);
+        if (hours > 0) {
+          const sailor = shopSailors.find(s => (s.uid || s.id) === selectedSailorUid);
+          const name = sailor ? (sailor.displayName || sailor.email) : "Sailor";
+          contributorMap[name] = (contributorMap[name] || 0) + hours;
+        }
+      }
+    });
+    return Object.keys(contributorMap).map(name => ({ name, hours: contributorMap[name] }));
+  }, [sailorTasks, tasks, selectedSailorUid, shopSailors, nowTs]);
+
   const analytics = useMemo(() => {
     const done = tasks.filter((t) => t.done && t.completedAt);
     const now = new Date();
