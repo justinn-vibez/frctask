@@ -725,6 +725,7 @@ function computeManHourDistribution(taskList, shopSailors, currentUid, currentUs
 }
 
 function CommandWeeklyTaskTracker() {
+  const currentUid = window.auth?.currentUser?.uid || "";
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [isRegistering, setIsRegistering] = useState(false);
@@ -1242,7 +1243,6 @@ function CommandWeeklyTaskTracker() {
       setTimeout(() => setErrorAlert(null), 5000);
       return;
     }
-    const currentUid = window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "";
     const targetUid = (userRole === "supervisor" || userRole === "admin") ? (assignedWorkerUid || currentUid) : currentUid;
 
     const isPoolTask = targetUid.startsWith("WC-");
@@ -1293,7 +1293,6 @@ function CommandWeeklyTaskTracker() {
   };
 
   const toggleCollaborativeTimer = (id) => {
-    const currentUid = window.auth?.currentUser?.uid;
     if (!currentUid) return;
 
     setTasks(prev => {
@@ -1353,7 +1352,6 @@ function CommandWeeklyTaskTracker() {
   const executeConfirmAction = async () => {
     if (!confirmAction) return;
     const { type, id } = confirmAction;
-    const currentUid = window.auth?.currentUser?.uid;
     const targetTask = tasks.find(t => t.id === id) || sailorTasks.find(t => t.id === id);
 
     if (type === 'delete') {
@@ -1410,7 +1408,6 @@ function CommandWeeklyTaskTracker() {
 
   const uncheckTask = (id, taskAssignedTo) => {
     if (isRestrictedSailor) return;
-    const currentUid = window.auth?.currentUser?.uid;
     const targetAssignedTo = taskAssignedTo || currentUid;
 
     updateTaskFieldsInDb(targetAssignedTo, id, { done: false, completedAt: null });
@@ -1425,7 +1422,6 @@ function CommandWeeklyTaskTracker() {
 
   const moveToNextWeek = (id) => {
     if (isRestrictedSailor) return;
-    const currentUid = window.auth?.currentUser?.uid;
     setTasks(prev => {
         const updated = prev.map(t => {
             if (t.id !== id) return t;
@@ -1443,7 +1439,6 @@ function CommandWeeklyTaskTracker() {
 
   const saveEdit = async () => {
     if (isRestrictedSailor || !editingTask || !editingTask.text.trim()) return;
-    const currentUid = window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "";
     const newAssignedTo = editingTask.assignedTo || currentUid;
     const oldAssignedTo = tasks.find(t => t.id === editingTask.id)?.assignedTo || sailorTasks.find(t => t.id === editingTask.id)?.assignedTo || currentUid;
 
@@ -1568,7 +1563,6 @@ function CommandWeeklyTaskTracker() {
   };
   const saveTaskNote = (id, text, taskAssignedTo) => {
     const trimmed = text.trim();
-    const currentUid = window.auth?.currentUser?.uid;
     const targetAssignedTo = taskAssignedTo || currentUid;
 
     updateTaskFieldsInDb(targetAssignedTo, id, { note: trimmed ? { text, updatedAt: new Date().toISOString(), updatedBy: userName } : null });
@@ -2021,11 +2015,11 @@ function CommandWeeklyTaskTracker() {
               <div>
                 <label className="block font-mono text-[10px] text-slate-400 mb-1">ASSIGNED WORKER / POOL</label>
                 <select 
-                  value={editingTask.assignedTo || (window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "")} 
+                  value={editingTask.assignedTo || currentUid} 
                   onChange={(e) => setEditingTask({...editingTask, assignedTo: e.target.value})}
                   className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-teal-300 font-mono focus:outline-none"
                 >
-                  <option value={window.auth && window.auth.currentUser ? window.auth.currentUser.uid : ""}>👤 Assign to Me</option>
+                  <option value={currentUid}>👤 Assign to Me</option>
                   <optgroup label="Work Center Pools">
                     {workCenters.map(wc => <option key={wc} value={"WC-" + wc}>🏢 Work Center Pool: {wc}</option>)}
                   </optgroup>
@@ -2289,7 +2283,6 @@ function CommandWeeklyTaskTracker() {
                       ) : (
                         sailorTasks.filter(t => !t.done).map((t) => {
                           const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
-                          const currentUid = window.auth?.currentUser?.uid;
                           const isCurrentUserRunning = t.runningWorkers && t.runningWorkers[currentUid];
                           const isAnyoneRunning = t.runningWorkers && Object.keys(t.runningWorkers).length > 0;
                           const ms = totalTaskMs(t, nowTs);
@@ -2574,7 +2567,6 @@ function CommandWeeklyTaskTracker() {
               <section className="space-y-3">
                 {activeTasks.map((t) => {
                   const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
-                  const currentUid = window.auth?.currentUser?.uid;
                   const running = t.runningWorkers && t.runningWorkers[currentUid];
                   const ms = totalTaskMs(t, nowTs);
                   const thisWeek = inActiveWeek(t);
@@ -2617,7 +2609,7 @@ function CommandWeeklyTaskTracker() {
               <section className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {activeTasks.map((t) => {
                   const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
-                  const running = t.runningWorkers && t.runningWorkers[window.auth?.currentUser?.uid];
+                  const running = t.runningWorkers && t.runningWorkers[currentUid];
                   const ms = totalTaskMs(t, nowTs);
                   const thisWeek = inActiveWeek(t);
                   return (
