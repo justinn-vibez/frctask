@@ -83,6 +83,7 @@ const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const axisTick = { fill: "#64748b", fontSize: 10, fontFamily: "monospace" };
 const axisTickLight = { fill: "#94a3b8", fontSize: 10, fontFamily: "monospace" };
+const chartTooltipStyle = { backgroundColor: "#0f172a", border: "1px solid #334155", borderRadius: "6px", fontSize: "12px", fontFamily: "monospace", color: "#e2e8f0" };
 
 function lsGet(key) { try { const r = window.localStorage.getItem(key); return r ? JSON.parse(r) : null; } catch (e) { return null; } }
 function lsSet(key, value) { try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
@@ -2236,8 +2237,7 @@ function CommandWeeklyTaskTracker() {
               <section className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {activeTasks.map((t) => {
                   const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
-                  const currentUid = window.auth?.currentUser?.uid;
-                  const running = t.runningWorkers && t.runningWorkers[currentUid];
+                  const running = t.runningWorkers && t.runningWorkers[window.auth?.currentUser?.uid];
                   const ms = totalTaskMs(t, nowTs);
                   const thisWeek = inActiveWeek(t);
                   return (
