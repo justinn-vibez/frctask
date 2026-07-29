@@ -750,10 +750,10 @@ function CommandWeeklyTaskTracker() {
   const [sortMode, setSortMode] = useState("default");
   const [viewMode, setViewMode] = useState("list");
 
-  // Main Authentication and Root Snapshot Listener with Strict Deduplication
+  // Main Authentication and Multi-User Task Snapshot Listener
   useEffect(() => {
     let unsubscribeAuth = null;
-    let unsubscribeTasks = null;
+    let unsubsTasks = [];
     let unsubscribePoolTasks = [];
     
     const safetyTimer = setTimeout(() => { setLoaded(true); }, 2500);
@@ -765,12 +765,14 @@ function CommandWeeklyTaskTracker() {
       unsubscribeAuth = onAuthStateChanged(window.auth, async (user) => {
         if (user) {
           let currentWCs = ["040"];
+          let currentUserRole = "sailor";
           try {
             await initializeUserProfile(user);
             const userSnap = await getDoc(doc(window.db, "users", user.uid));
             if (userSnap.exists()) {
               const uData = userSnap.data();
-              setUserRole(uData.role || "sailor");
+              currentUserRole = uData.role || "sailor";
+              setUserRole(currentUserRole);
               currentWCs = uData.workCenters || (uData.workCenter ? [uData.workCenter] : ["040"]);
               setUserWorkCenters(Array.isArray(currentWCs) ? currentWCs : [currentWCs]);
               if (uData.displayName) {
@@ -786,6 +788,48 @@ function CommandWeeklyTaskTracker() {
             if (sailors.length > 0) {
               setSelectedSailorUid(prev => prev || (sailors[0].uid || sailors[0].id));
             }
+
+            unsubsTasks.forEach(unsub => unsub());
+            unsubsTasks = [];
+
+            const mergeTasks = (allLists) => {
+              const map = new Map();
+              allLists.flat().forEach(t => {
+                if (t && t.id) map.set(t.id, t);
+              });
+              const merged = Array.from(map.values());
+              lsSet(TASKS_KEY, merged);
+              return merged;
+            };
+
+            let userTasksMap = {};
+            const targetUids = (currentUserRole === "supervisor" || currentUserRole === "admin") 
+                             ? sailors.map(s => s.uid || s.id) 
+                             : [user.uid];
+
+            targetUids.forEach(uid => {
+              const unsubUser = onSnapshot(collection(window.db, "users", uid, "tasks"), (snapshot) => {
+                const list = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+                userTasksMap[uid] = list;
+                setTasks(prev => mergeTasks([...Object.values(userTasksMap), ...Object.values(poolTasksMap || {})]));
+              }, (err) => {
+                console.log(`Task notice for user ${uid}:`, err.message);
+              });
+              unsubsTasks.push(unsubUser);
+            });
+
+            let poolTasksMap = {};
+            currentWCs.forEach(wc => {
+              const unsubPool = onSnapshot(collection(window.db, "workcenters", wc, "poolTasks"), (snapshot) => {
+                const pTasks = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data(), isPool: true }));
+                poolTasksMap[wc] = pTasks;
+                setTasks(prev => mergeTasks([...Object.values(userTasksMap), ...Object.values(poolTasksMap)]));
+              }, (err) => {
+                console.log("Pool listener notice for WC " + wc + ":", err.message);
+              });
+              unsubscribePoolTasks.push(unsubPool);
+            });
+
           } catch(e) {
             console.error("Error during initial fetch:", e);
           }
@@ -814,52 +858,13 @@ function CommandWeeklyTaskTracker() {
             console.error("Error loading labels:", e);
           }
 
-          const mergeTasks = (personal, poolList) => {
-            const map = new Map();
-            [...personal, ...poolList].forEach(t => {
-              if (t && t.id) map.set(t.id, t);
-            });
-            const merged = Array.from(map.values());
-            lsSet(TASKS_KEY, merged);
-            return merged;
-          };
-
-          let latestPersonal = [];
-          let poolTasksMap = {};
-
-          if (unsubscribeTasks) unsubscribeTasks();
-          unsubscribeTasks = onSnapshot(collection(window.db, "users", user.uid, "tasks"), (snapshot) => {
-            latestPersonal = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
-            const allPools = Object.values(poolTasksMap).flat();
-            setTasks(prev => mergeTasks(latestPersonal, allPools));
-          }, (error) => {
-            console.error("Firestore personal task sync error:", error);
-          });
-
-          if (unsubscribePoolTasks.length > 0) {
-            unsubscribePoolTasks.forEach(unsub => unsub());
-            unsubscribePoolTasks = [];
-          }
-
-          currentWCs.forEach(wc => {
-            const unsubPool = onSnapshot(collection(window.db, "workcenters", wc, "poolTasks"), (snapshot) => {
-              const pTasks = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data(), isPool: true }));
-              poolTasksMap[wc] = pTasks;
-              const allPools = Object.values(poolTasksMap).flat();
-              setTasks(prev => mergeTasks(latestPersonal, allPools));
-            }, (err) => {
-              console.log("Pool listener notice for WC " + wc + ":", err.message);
-            });
-            unsubscribePoolTasks.push(unsubPool);
-          });
-
         } else {
           setUserName("");
           setUserRole("sailor");
           setUserWorkCenters(["040"]);
           setAskingName(true);
           setTasks([]);
-          if (unsubscribeTasks) unsubscribeTasks();
+          unsubsTasks.forEach(unsub => unsub());
           if (unsubscribePoolTasks.length > 0) {
             unsubscribePoolTasks.forEach(unsub => unsub());
             unsubscribePoolTasks = [];
@@ -872,7 +877,7 @@ function CommandWeeklyTaskTracker() {
       return () => {
         clearTimeout(safetyTimer);
         if (unsubscribeAuth) unsubscribeAuth();
-        if (unsubscribeTasks) unsubscribeTasks();
+        unsubsTasks.forEach(unsub => unsub());
         if (unsubscribePoolTasks.length > 0) unsubscribePoolTasks.forEach(unsub => unsub());
       };
     } else {
@@ -2006,7 +2011,7 @@ function CommandWeeklyTaskTracker() {
                   </div>
                 </div>
 
-              <div className="flex items-center gap-2 w-full sm:w-auto max-w-full">
+                <div className="flex items-center gap-2 w-full sm:w-auto max-w-full">
                   <span className="font-mono text-[10px] text-slate-400 tracking-widest whitespace-nowrap">SELECT SAILOR:</span>
                   <select 
                     value={selectedSailorUid || ""} 
@@ -2029,6 +2034,7 @@ function CommandWeeklyTaskTracker() {
                     )}
                   </select>
                 </div>
+              </div>
 
               {selectedSailorObj && (
                 <div className="space-y-6">
