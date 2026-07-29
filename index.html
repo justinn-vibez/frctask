@@ -252,6 +252,51 @@ function ProgressRing({ pct, completed, total, size = 170, stroke = 13 }) {
   );
 }
 
+function CollaboratorPopover({ task, nowTs, shopSailors, currentUid, userName }) {
+  const [show, setShow] = useState(false);
+  const runningWorkers = task.runningWorkers || {};
+  const contributors = task.contributors || {};
+  const allUids = Array.from(new Set([...Object.keys(runningWorkers), ...Object.keys(contributors)]));
+  
+  if (allUids.length === 0) return null;
+
+  return (
+    <div className="relative inline-block ml-2">
+      <button 
+        onClick={(e) => { e.stopPropagation(); setShow(!show); }}
+        className="font-mono text-[10px] px-2 py-1 rounded bg-slate-800 border border-slate-700 text-teal-400 hover:bg-slate-700 flex items-center gap-1 shadow"
+        title="View participant breakdown"
+      >
+        👥 {Object.keys(runningWorkers).length > 0 ? `${Object.keys(runningWorkers).length} active` : `${allUids.length} contrib`}
+      </button>
+      {show && (
+        <div className="absolute left-0 bottom-full mb-1 z-50 bg-slate-900 border border-slate-700 rounded-lg p-3 shadow-2xl w-60 text-xs font-mono">
+          <div className="flex justify-between items-center mb-2 border-b border-slate-800 pb-1">
+            <span className="text-teal-400 font-bold">PARTICIPANT BREAKDOWN</span>
+            <button onClick={(e) => { e.stopPropagation(); setShow(false); }} className="text-slate-500 hover:text-white">✕</button>
+          </div>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {allUids.map(u => {
+              const name = (u === currentUid) ? (userName || "You") : (shopSailors.find(s => (s.uid || s.id) === u)?.displayName || shopSailors.find(s => (s.uid || s.id) === u)?.email || "Maintainer");
+              const isRunning = !!runningWorkers[u];
+              const timeMs = userElapsedMs(task, u, nowTs);
+              return (
+                <div key={u} className="flex justify-between items-center bg-slate-950 p-2 rounded border border-slate-800">
+                  <div className="min-w-0 pr-2">
+                    <p className="text-white truncate font-medium">{name}</p>
+                    <p className="text-[9px]" style={{ color: isRunning ? ACCENT.teal : "#64748b" }}>{isRunning ? "● CLOCKED IN" : "○ IDLE"}</p>
+                  </div>
+                  <span className="text-amber-400 font-bold tabular-nums shrink-0">{fmtDuration(timeMs)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GuidedTour({ onComplete }) {
   const [step, setStep] = useState(0);
   const steps = [
@@ -1277,6 +1322,23 @@ function CommandWeeklyTaskTracker() {
        lsSet(TASKS_KEY, updated);
        return updated;
     });
+
+    setSailorTasks(prev => prev.map(t => {
+       if (t.id !== id) return t;
+       const runningWorkers = { ...(t.runningWorkers || {}) };
+       const contributors = { ...(t.contributors || {}) };
+       const nowIso = new Date().toISOString();
+       const now = Date.now();
+       if (runningWorkers[currentUid]) {
+         const startMs = new Date(runningWorkers[currentUid]).getTime();
+         const elapsed = Math.max(0, now - startMs);
+         contributors[currentUid] = (contributors[currentUid] || 0) + elapsed;
+         delete runningWorkers[currentUid];
+       } else {
+         runningWorkers[currentUid] = nowIso;
+       }
+       return { ...t, contributors, runningWorkers };
+    }));
   };
   
   const triggerAction = (type, id) => {
@@ -2009,7 +2071,7 @@ function CommandWeeklyTaskTracker() {
                         {t.due && <span className="font-mono text-xs tracking-widest px-2 py-1 rounded border border-slate-700 text-slate-400">{dueLabelTxt(t.due)}</span>}
                     </div>
                 </div>
-                {(ms > 0 || running) && <div className="shrink-0 text-3xl font-mono tabular-nums font-bold" style={{ color: running ? ACCENT.amber : "#475569" }}>⏱ {fmtDuration(ms)}</div>}
+                {(ms > 0 || running) && <div className="shrink-0 text-3xl font-mono tabular-nums font-bold flex items-center gap-2" style={{ color: running ? ACCENT.amber : "#475569" }}>⏱ {fmtDuration(ms)} <CollaboratorPopover task={t} nowTs={nowTs} shopSailors={shopSailors} currentUid={currentUid} userName={userName} /></div>}
             </div>
           );
       };
@@ -2244,7 +2306,7 @@ function CommandWeeklyTaskTracker() {
                                     <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded bg-teal-950 text-teal-300 border border-teal-800">{getWorkerName(t.assignedTo)}</span>
                                   </div>
                                   <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
-                                    <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: isAnyoneRunning ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: isAnyoneRunning ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
+                                    <span className="font-mono text-sm font-bold tabular-nums tracking-wider flex items-center gap-2" style={{ color: isAnyoneRunning ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: isAnyoneRunning ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)} <CollaboratorPopover task={t} nowTs={nowTs} shopSailors={shopSailors} currentUid={currentUid} userName={userName} /></span>
                                     <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={isCurrentUserRunning ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{isCurrentUserRunning ? "❚❚ CLOCK OUT" : ms > 0 ? "▶ RESUME" : "▶ CLOCK IN"}</button>
                                     <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓ FINISH</button>
                                   </div>
@@ -2533,7 +2595,7 @@ function CommandWeeklyTaskTracker() {
                             )}
                           </div>
                           <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
-                            <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
+                            <span className="font-mono text-sm font-bold tabular-nums tracking-wider flex items-center gap-2" style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)} <CollaboratorPopover task={t} nowTs={nowTs} shopSailors={shopSailors} currentUid={currentUid} userName={userName} /></span>
                             <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={running ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{running ? "❚❚ CLOCK OUT" : ms > 0 ? "▶ RESUME" : "▶ CLOCK IN"}</button>
                             <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓ FINISH</button>
                           </div>
@@ -2582,7 +2644,7 @@ function CommandWeeklyTaskTracker() {
                       </div>
                       <div>
                         <div className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-800 rounded px-2.5 py-1 mb-2 w-fit">
-                          <span className="font-mono text-xs font-bold tabular-nums tracking-wider" style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
+                          <span className="font-mono text-xs font-bold tabular-nums tracking-wider flex items-center gap-1.5" style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)} <CollaboratorPopover task={t} nowTs={nowTs} shopSailors={shopSailors} currentUid={currentUid} userName={userName} /></span>
                           <div className="flex gap-1">
                             <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={running ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{running ? "❚❚" : "▶"}</button>
                             <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓</button>
