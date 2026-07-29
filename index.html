@@ -1119,7 +1119,7 @@ function CommandWeeklyTaskTracker() {
 
   const oversightTargetUidsKey = oversightTargetSailors.map(s => s.uid || s.id).join(",");
 
-  // Admin Oversight Task Listener (Fetches selected sailor's or work center's tasks directly)
+  // Admin Oversight Task Listener (Fetches selected sailor's or work center's tasks directly with explicit assignedTo)
   useEffect(() => {
     setSailorSubTab("active");
     if (tab !== "oversight" || !window.db || !window.dbOperations) return;
@@ -1292,7 +1292,7 @@ function CommandWeeklyTaskTracker() {
     if (!confirmAction) return;
     const { type, id } = confirmAction;
     const currentUid = window.auth?.currentUser?.uid;
-    const targetTask = tasks.find(t => t.id === id);
+    const targetTask = tasks.find(t => t.id === id) || sailorTasks.find(t => t.id === id);
 
     if (type === 'delete') {
       if (isRestrictedSailor) return;
@@ -1302,7 +1302,7 @@ function CommandWeeklyTaskTracker() {
           const wcCode = targetTask.assignedTo.replace("WC-", "");
           deleteDoc(doc(window.db, "workcenters", wcCode, "poolTasks", String(id))).catch(e => console.error(e));
         } else {
-          deleteDoc(doc(window.db, "users", targetTask.assignedTo || currentUid, "tasks", String(id))).catch(e => console.error(e));
+          deleteDoc(taskDocRef(targetTask.assignedTo || currentUid, id)).catch(e => console.error(e));
         }
       }
       setTasks(prev => {
@@ -1310,9 +1310,14 @@ function CommandWeeklyTaskTracker() {
         lsSet(TASKS_KEY, next);
         return next;
       });
+      setSailorTasks(prev => prev.filter(t => t.id !== id));
     }
     else if (type === 'finish' || type === 'complete') {
         const completedTime = new Date().toISOString();
+        const targetAssignedTo = targetTask ? (targetTask.assignedTo || currentUid) : currentUid;
+        
+        finishTaskInDb(targetAssignedTo, id, completedTime);
+
         setTasks(prev => {
             const updated = prev.map((t) => {
                 if (t.id !== id) return t;
@@ -1323,14 +1328,13 @@ function CommandWeeklyTaskTracker() {
                    const startMs = new Date(runningWorkers[u]).getTime();
                    contributors[u] = (contributors[u] || 0) + Math.max(0, now - startMs);
                 });
-
-                const newT = { ...t, runningWorkers: {}, contributors, done: true, completedAt: completedTime };
-                finishTaskInDb(t.assignedTo || currentUid, t.id, completedTime);
-                return newT;
+                return { ...t, runningWorkers: {}, contributors, done: true, completedAt: completedTime };
             });
             lsSet(TASKS_KEY, updated);
             return updated;
         });
+
+        setSailorTasks(prev => prev.map(t => t.id === id ? { ...t, done: true, completedAt: completedTime } : t));
     }
     else if (type === 'signout') {
       if (window.auth) window.auth.signOut();
@@ -1342,19 +1346,19 @@ function CommandWeeklyTaskTracker() {
     setConfirmAction(null);
   };
 
-  const uncheckTask = (id) => {
+  const uncheckTask = (id, taskAssignedTo) => {
     if (isRestrictedSailor) return;
     const currentUid = window.auth?.currentUser?.uid;
+    const targetAssignedTo = taskAssignedTo || currentUid;
+
+    updateTaskFieldsInDb(targetAssignedTo, id, { done: false, completedAt: null });
+
     setTasks(prev => {
-        const updated = prev.map(t => {
-            if (t.id !== id) return t;
-            const newT = { ...t, done: false, completedAt: null };
-            updateTaskFieldsInDb(t.assignedTo || currentUid, t.id, { done: false, completedAt: null });
-            return newT;
-        });
+        const updated = prev.map(t => t.id === id ? { ...t, done: false, completedAt: null } : t);
         lsSet(TASKS_KEY, updated);
         return updated;
     });
+    setSailorTasks(prev => prev.map(t => t.id === id ? { ...t, done: false, completedAt: null } : t));
   };
 
   const moveToNextWeek = (id) => {
@@ -1379,7 +1383,7 @@ function CommandWeeklyTaskTracker() {
     if (isRestrictedSailor || !editingTask || !editingTask.text.trim()) return;
     const currentUid = window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "";
     const newAssignedTo = editingTask.assignedTo || currentUid;
-    const oldAssignedTo = tasks.find(t => t.id === editingTask.id)?.assignedTo || currentUid;
+    const oldAssignedTo = tasks.find(t => t.id === editingTask.id)?.assignedTo || sailorTasks.find(t => t.id === editingTask.id)?.assignedTo || currentUid;
 
     const isPoolTask = newAssignedTo.startsWith("WC-");
     const editedFields = {
@@ -1500,23 +1504,24 @@ function CommandWeeklyTaskTracker() {
       return next;
     });
   };
-  const saveTaskNote = (id, text) => {
+  const saveTaskNote = (id, text, taskAssignedTo) => {
     const trimmed = text.trim();
     const currentUid = window.auth?.currentUser?.uid;
+    const targetAssignedTo = taskAssignedTo || currentUid;
+
+    updateTaskFieldsInDb(targetAssignedTo, id, { note: trimmed ? { text, updatedAt: new Date().toISOString(), updatedBy: userName } : null });
+
     setTasks(prev => {
        const updated = prev.map(t => {
            if (t.id !== id) return t;
            const noteVal = trimmed ? { text, updatedAt: new Date().toISOString(), updatedBy: userName } : null;
-           const newT = { ...t, note: noteVal };
-           updateTaskFieldsInDb(t.assignedTo || currentUid, t.id, { note: noteVal });
-           return newT;
+           return { ...t, note: noteVal };
        });
        lsSet(TASKS_KEY, updated);
        return updated;
     });
+    setSailorTasks(prev => prev.map(t => t.id === id ? { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString(), updatedBy: userName } : null } : t));
   };
-
-  const currentUid = window.auth?.currentUser?.uid;
 
   const manHourDistribution = useMemo(
     () => computeManHourDistribution(tasks, shopSailors, currentUid, userName, nowTs),
@@ -2229,6 +2234,7 @@ function CommandWeeklyTaskTracker() {
                           return (
                             <div key={t.id + (t.assignedTo || '')} className="bg-slate-950 border border-slate-800 rounded-lg p-4" style={{ borderLeft: "4px solid " + pm.color }}>
                               <div className="flex items-start gap-3">
+                                <button onClick={() => triggerAction('complete', t.id)} className="mt-0.5 w-6 h-6 shrink-0 rounded border-2 flex items-center justify-center transition-colors hover:border-slate-400" style={{ borderColor: "#475569" }} title="Complete task" />
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm sm:text-base text-white">{t.text}</p>
                                   <div className="flex flex-wrap items-center gap-2 mt-2">
@@ -2240,8 +2246,13 @@ function CommandWeeklyTaskTracker() {
                                   <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
                                     <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: isAnyoneRunning ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: isAnyoneRunning ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
                                     <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={isCurrentUserRunning ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{isCurrentUserRunning ? "❚❚ CLOCK OUT" : ms > 0 ? "▶ RESUME" : "▶ CLOCK IN"}</button>
+                                    <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓ FINISH</button>
                                   </div>
-                                  <TaskNotes task={t} onSaveNote={saveTaskNote} />
+                                  <TaskNotes task={t} onSaveNote={(id, text) => saveTaskNote(id, text, t.assignedTo)} />
+                                </div>
+                                <div className="flex gap-1 shrink-0">
+                                  <button onClick={() => setEditingTask(t)} title="Edit task & reassign" className="p-2 rounded text-slate-500 hover:text-white hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10.5 2.5l2 2L5 12l-2.5.5L3 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg></button>
+                                  <button onClick={() => triggerAction('delete', t.id)} title="Delete task" className="p-2 rounded text-slate-500 hover:text-rose-500 hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
                                 </div>
                               </div>
                             </div>
@@ -2258,14 +2269,18 @@ function CommandWeeklyTaskTracker() {
                         sailorTasks.filter(t => t.done).sort((a, b) => ((b.completedAt || "") < (a.completedAt || "") ? -1 : 1)).map((t) => {
                           const pm = priorityMeta(t.priority);
                           return (
-                            <div key={t.id + (t.assignedTo || '')} className="bg-slate-950 border border-slate-800 rounded-lg p-3" style={{ borderLeft: "4px solid " + pm.color + "55" }}>
-                              <p className="text-sm text-slate-400 line-through">{t.text}</p>
-                              <div className="flex gap-2 mt-1.5 font-mono text-[10px] tracking-widest text-slate-500">
-                                <span style={{ color: ACCENT.teal }}>✓ {fmtStamp(t.completedAt)}</span>
-                                {totalTaskMs(t, nowTs) > 0 && <span style={{ color: ACCENT.amber }}>⏱ {fmtDuration(totalTaskMs(t, nowTs))}</span>}
-                                <span className="text-teal-400">· {getWorkerName(t.assignedTo)}</span>
+                            <div key={t.id + (t.assignedTo || '')} className="bg-slate-950 border border-slate-800 rounded-lg p-3 flex items-start gap-3" style={{ borderLeft: "4px solid " + pm.color + "55" }}>
+                              <button onClick={() => uncheckTask(t.id, t.assignedTo)} className="mt-0.5 w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center" style={{ borderColor: ACCENT.teal, backgroundColor: ACCENT.teal }} title="Restore task"><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5L5.5 11L12 3.5" stroke="#04241f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-slate-400 line-through">{t.text}</p>
+                                <div className="flex gap-2 mt-1.5 font-mono text-[10px] tracking-widest text-slate-500">
+                                  <span style={{ color: ACCENT.teal }}>✓ {fmtStamp(t.completedAt)}</span>
+                                  {totalTaskMs(t, nowTs) > 0 && <span style={{ color: ACCENT.amber }}>⏱ {fmtDuration(totalTaskMs(t, nowTs))}</span>}
+                                  <span className="text-teal-400">· {getWorkerName(t.assignedTo)}</span>
+                                </div>
+                                <TaskNotes task={t} onSaveNote={(id, text) => saveTaskNote(id, text, t.assignedTo)} compact />
                               </div>
-                              <TaskNotes task={t} onSaveNote={saveTaskNote} compact />
+                              <button onClick={() => triggerAction('delete', t.id)} title="Delete task" className="p-1.5 rounded text-slate-600 hover:text-rose-500 hover:bg-slate-800"><svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
                             </div>
                           );
                         })
@@ -2603,7 +2618,7 @@ function CommandWeeklyTaskTracker() {
                   return (
                     <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-lg p-3 flex items-start gap-3" style={{ borderLeft: "4px solid " + pm.color + "55" }}>
                       {!isRestrictedSailor && (
-                        <button onClick={() => uncheckTask(t.id)} className="mt-0.5 w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center" style={{ borderColor: ACCENT.teal, backgroundColor: ACCENT.teal }}><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5L5.5 11L12 3.5" stroke="#04241f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+                        <button onClick={() => uncheckTask(t.id, t.assignedTo)} className="mt-0.5 w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center" style={{ borderColor: ACCENT.teal, backgroundColor: ACCENT.teal }}><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5L5.5 11L12 3.5" stroke="#04241f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-slate-400 line-through">{t.text}</p>
