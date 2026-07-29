@@ -64,11 +64,10 @@ const {
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList, PieChart, Pie
 } = Recharts;
 
-const TASKS_KEY = "weekly_tracker_tasks_b31";
-const LABELS_KEY = "weekly_tracker_labels_b31";
-const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b31";
-const USER_NAME_KEY = "weekly_tracker_username_b31";
-const TOUR_KEY = "weekly_tracker_tour_b31";
+const TASKS_KEY = "weekly_tracker_tasks_b32";
+const LABELS_KEY = "weekly_tracker_labels_b32";
+const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b32";
+const USER_NAME_KEY = "weekly_tracker_username_b32";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -445,7 +444,7 @@ function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }
   );
 }
 
-const initializeUserProfile = async (user, officialName = "", workCenter = "040") => {
+const initializeUserProfile = async (user, officialName = "", workCenters = ["040"]) => {
   if (!window.db || !window.dbOperations) return;
   const { doc, getDoc, setDoc } = window.dbOperations;
   const userRef = doc(window.db, "users", user.uid);
@@ -459,7 +458,7 @@ const initializeUserProfile = async (user, officialName = "", workCenter = "040"
         uid: user.uid,
         email: user.email,
         displayName: officialName || (user.email ? user.email.split("@")[0] : "user"),
-        workCenter: workCenter || "040",
+        workCenters: workCenters || ["040"],
         role: defaultRole,
         createdAt: new Date().toISOString()
       }, { merge: true });
@@ -505,7 +504,7 @@ function CommandWeeklyTaskTracker() {
 
   const [userName, setUserName] = useState("");
   const [userRole, setUserRole] = useState("sailor"); 
-  const [userWorkCenter, setUserWorkCenter] = useState("040");
+  const [userWorkCenters, setUserWorkCenters] = useState(["040"]);
   const [shopSailors, setShopSailors] = useState([]);
   const [selectedSailorUid, setSelectedSailorUid] = useState(null);
   const [sailorTasks, setSailorTasks] = useState([]);
@@ -527,7 +526,7 @@ function CommandWeeklyTaskTracker() {
   const [newProvUser, setNewProvUser] = useState("");
   const [newProvPass, setNewProvPass] = useState("");
   const [newProvName, setNewProvName] = useState("");
-  const [newProvWC, setNewProvWC] = useState("040");
+  const [newProvWCs, setNewProvWCs] = useState(["040"]);
   const [newProvRole, setNewProvRole] = useState("sailor");
   const [provSuccess, setProvSuccess] = useState(null);
 
@@ -585,7 +584,7 @@ function CommandWeeklyTaskTracker() {
         uid: newUid,
         email: cleanEmail,
         displayName: newProvName.trim() || newProvUser.trim(),
-        workCenter: newProvWC.trim() || "040",
+        workCenters: newProvWCs.length > 0 ? newProvWCs : ["040"],
         role: newProvRole,
         createdAt: new Date().toISOString()
       });
@@ -593,7 +592,7 @@ function CommandWeeklyTaskTracker() {
       const { signOut } = window.authOperations;
       await signOut(secondaryAuth);
       
-      setProvSuccess({ type: "success", text: `Successfully created user [${newProvUser}] under WC [${newProvWC}].` });
+      setProvSuccess({ type: "success", text: `Successfully created user [${newProvUser}].` });
       setNewProvUser(""); setNewProvPass(""); setNewProvName("");
 
       const usersSnap = await getDocs(collection(window.db, "users"));
@@ -623,9 +622,10 @@ function CommandWeeklyTaskTracker() {
     const initialEdits = {};
     shopSailors.forEach(s => {
       const uid = s.uid || s.id;
+      let wcs = s.workCenters || (s.workCenter ? [s.workCenter] : ["040"]);
       initialEdits[uid] = {
         role: s.role || "sailor",
-        workCenter: s.workCenter || "040"
+        workCenters: Array.isArray(wcs) ? wcs : [wcs]
       };
     });
     setUserEdits(initialEdits);
@@ -642,6 +642,22 @@ function CommandWeeklyTaskTracker() {
     }));
   };
 
+  const toggleUserWorkCenterEdit = (uid, wc) => {
+    setUserEdits(prev => {
+      const current = prev[uid] || { role: "sailor", workCenters: ["040"] };
+      let updatedWCs = [...(current.workCenters || [])];
+      if (updatedWCs.includes(wc)) {
+        updatedWCs = updatedWCs.filter(w => w !== wc);
+      } else {
+        updatedWCs.push(wc);
+      }
+      return {
+        ...prev,
+        [uid]: { ...current, workCenters: updatedWCs }
+      };
+    });
+  };
+
   const applyAllUserPermissions = async () => {
     if (!window.db || !window.dbOperations) return;
     const { doc, updateDoc } = window.dbOperations;
@@ -650,7 +666,7 @@ function CommandWeeklyTaskTracker() {
         const edits = userEdits[uid];
         await updateDoc(doc(window.db, "users", uid), {
           role: edits.role,
-          workCenter: edits.workCenter
+          workCenters: edits.workCenters
         });
       });
 
@@ -659,7 +675,7 @@ function CommandWeeklyTaskTracker() {
       setShopSailors(prev => prev.map(s => {
         const uid = s.uid || s.id;
         if (userEdits[uid]) {
-          return { ...s, role: userEdits[uid].role, workCenter: userEdits[uid].workCenter };
+          return { ...s, role: userEdits[uid].role, workCenters: userEdits[uid].workCenters, workCenter: userEdits[uid].workCenters[0] || "040" };
         }
         return s;
       }));
@@ -736,7 +752,7 @@ function CommandWeeklyTaskTracker() {
   useEffect(() => {
     let unsubscribeAuth = null;
     let unsubscribeTasks = null;
-    let unsubscribePoolTasks = null;
+    let unsubscribePoolTasks = [];
     
     const safetyTimer = setTimeout(() => { setLoaded(true); }, 2500);
 
@@ -746,15 +762,15 @@ function CommandWeeklyTaskTracker() {
 
       unsubscribeAuth = onAuthStateChanged(window.auth, async (user) => {
         if (user) {
-          let currentWc = "040";
+          let currentWCs = ["040"];
           try {
             await initializeUserProfile(user);
             const userSnap = await getDoc(doc(window.db, "users", user.uid));
             if (userSnap.exists()) {
               const uData = userSnap.data();
               setUserRole(uData.role || "sailor");
-              currentWc = uData.workCenter || "040";
-              setUserWorkCenter(currentWc);
+              currentWCs = uData.workCenters || (uData.workCenter ? [uData.workCenter] : ["040"]);
+              setUserWorkCenters(Array.isArray(currentWCs) ? currentWCs : [currentWCs]);
               if (uData.displayName) {
                 setUserName(uData.displayName);
                 lsSet(USER_NAME_KEY, uData.displayName);
@@ -796,9 +812,9 @@ function CommandWeeklyTaskTracker() {
             console.error("Error loading labels:", e);
           }
 
-          const mergeTasks = (personal, pool) => {
+          const mergeTasks = (personal, poolList) => {
             const map = new Map();
-            [...personal, ...pool].forEach(t => {
+            [...personal, ...poolList].forEach(t => {
               if (t && t.id) map.set(t.id, t);
             });
             const merged = Array.from(map.values());
@@ -807,32 +823,46 @@ function CommandWeeklyTaskTracker() {
           };
 
           let latestPersonal = [];
-          let latestPool = [];
+          let poolTasksMap = {};
 
           if (unsubscribeTasks) unsubscribeTasks();
           unsubscribeTasks = onSnapshot(collection(window.db, "users", user.uid, "tasks"), (snapshot) => {
             latestPersonal = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
-            setTasks(prev => mergeTasks(latestPersonal, latestPool));
+            const allPools = Object.values(poolTasksMap).flat();
+            setTasks(prev => mergeTasks(latestPersonal, allPools));
           }, (error) => {
             console.error("Firestore personal task sync error:", error);
           });
 
-          if (unsubscribePoolTasks) unsubscribePoolTasks();
-          unsubscribePoolTasks = onSnapshot(collection(window.db, "workcenters", currentWc, "poolTasks"), (snapshot) => {
-            latestPool = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data(), isPool: true }));
-            setTasks(prev => mergeTasks(latestPersonal, latestPool));
-          }, (err) => {
-            console.log("Pool listener notice:", err.message);
+          // Listen to all work center pools the user has access to
+          if (unsubscribePoolTasks.length > 0) {
+            unsubscribePoolTasks.forEach(unsub => unsub());
+            unsubscribePoolTasks = [];
+          }
+
+          currentWCs.forEach(wc => {
+            const unsubPool = onSnapshot(collection(window.db, "workcenters", wc, "poolTasks"), (snapshot) => {
+              const pTasks = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data(), isPool: true }));
+              poolTasksMap[wc] = pTasks;
+              const allPools = Object.values(poolTasksMap).flat();
+              setTasks(prev => mergeTasks(latestPersonal, allPools));
+            }, (err) => {
+              console.log("Pool listener notice for WC " + wc + ":", err.message);
+            });
+            unsubscribePoolTasks.push(unsubPool);
           });
 
         } else {
           setUserName("");
           setUserRole("sailor");
-          setUserWorkCenter("040");
+          setUserWorkCenters(["040"]);
           setAskingName(true);
           setTasks([]);
           if (unsubscribeTasks) unsubscribeTasks();
-          if (unsubscribePoolTasks) unsubscribePoolTasks();
+          if (unsubscribePoolTasks.length > 0) {
+            unsubscribePoolTasks.forEach(unsub => unsub());
+            unsubscribePoolTasks = [];
+          }
         }
         clearTimeout(safetyTimer);
         setLoaded(true); 
@@ -842,7 +872,7 @@ function CommandWeeklyTaskTracker() {
         clearTimeout(safetyTimer);
         if (unsubscribeAuth) unsubscribeAuth();
         if (unsubscribeTasks) unsubscribeTasks();
-        if (unsubscribePoolTasks) unsubscribePoolTasks();
+        if (unsubscribePoolTasks.length > 0) unsubscribePoolTasks.forEach(unsub => unsub());
       };
     } else {
       const storedLabels = lsGet(LABELS_KEY);
@@ -866,7 +896,10 @@ function CommandWeeklyTaskTracker() {
 
   const filteredShopSailors = useMemo(() => {
     if (selectedWcFilter === "ALL") return shopSailors;
-    return shopSailors.filter(s => (s.workCenter || "040") === selectedWcFilter);
+    return shopSailors.filter(s => {
+      const wcs = s.workCenters || (s.workCenter ? [s.workCenter] : ["040"]);
+      return wcs.includes(selectedWcFilter);
+    });
   }, [shopSailors, selectedWcFilter]);
 
   // Admin Oversight Task Listener
@@ -896,7 +929,14 @@ function CommandWeeklyTaskTracker() {
     prevPct.current = pct;
   }, [pct, loaded, weekTotal]);
 
+  const isRestrictedSailor = userRole === "sailor"; // Restricted maintainer: view work center pool, complete & note, but NO assign/delete/create
+
   const addTask = async () => {
+    if (isRestrictedSailor) {
+      setErrorAlert("Permission Restricted: Maintainer accounts cannot create new tasks.");
+      setTimeout(() => setErrorAlert(null), 5000);
+      return;
+    }
     setAttemptedSubmit(true);
     if (!newText.trim() || !newDue) {
       setErrorAlert("Both a Task Name and a Due Date are required to create a task.");
@@ -948,9 +988,6 @@ function CommandWeeklyTaskTracker() {
     } else {
       setErrorAlert("success: Task successfully delegated to sailor.");
       setTimeout(() => setErrorAlert(null), 4000);
-      if (tab === "oversight" && selectedSailorUid === targetUid) {
-         setSailorTasks(prev => [...prev.filter(t => t.id !== newTask.id), newTask]);
-      }
     }
 
     setNewText(""); setNewDue(""); setNewPriority("medium"); setNewNote(""); setAssignedWorkerUid(""); setAttemptedSubmit(false);
@@ -980,7 +1017,7 @@ function CommandWeeklyTaskTracker() {
           const newT = { ...t, contributors, runningWorkers };
           
           if (t.isPool) {
-            const wcCode = t.assignedTo ? t.assignedTo.replace("WC-", "") : userWorkCenter;
+            const wcCode = t.assignedTo ? t.assignedTo.replace("WC-", "") : (userWorkCenters[0] || "040");
             if (window.db && window.dbOperations) {
               const { doc, setDoc } = window.dbOperations;
               setDoc(doc(window.db, "workcenters", wcCode, "poolTasks", String(newT.id)), newT).catch(e=>console.error(e));
@@ -995,7 +1032,15 @@ function CommandWeeklyTaskTracker() {
     });
   };
   
-  const triggerAction = (type, id) => setConfirmAction({ type, id });
+  const triggerAction = (type, id) => {
+    const targetTask = tasks.find(t => t.id === id);
+    if (isRestrictedSailor && (type === 'delete' || type === 'edit')) {
+      setErrorAlert("Permission Restricted: Maintainer accounts cannot delete or reassign tasks.");
+      setTimeout(() => setErrorAlert(null), 5000);
+      return;
+    }
+    setConfirmAction({ type, id });
+  };
   
   const executeConfirmAction = async () => {
     if (!confirmAction) return;
@@ -1004,6 +1049,7 @@ function CommandWeeklyTaskTracker() {
     const targetTask = tasks.find(t => t.id === id);
 
     if (type === 'delete') {
+      if (isRestrictedSailor) return;
       if (window.db && window.dbOperations && currentUid && targetTask) {
         const { doc, deleteDoc } = window.dbOperations;
         if (targetTask.isPool) {
@@ -1073,6 +1119,7 @@ function CommandWeeklyTaskTracker() {
   };
 
   const moveToNextWeek = (id) => {
+    if (isRestrictedSailor) return;
     const currentUid = window.auth?.currentUser?.uid;
     setTasks(prev => {
         const updated = prev.map(t => {
@@ -1089,7 +1136,7 @@ function CommandWeeklyTaskTracker() {
   };
 
   const saveEdit = async () => {
-    if (!editingTask || !editingTask.text.trim()) return;
+    if (isRestrictedSailor || !editingTask || !editingTask.text.trim()) return;
     const currentUid = window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "";
     const newAssignedTo = editingTask.assignedTo || currentUid;
     const oldAssignedTo = tasks.find(t => t.id === editingTask.id)?.assignedTo || currentUid;
@@ -1126,18 +1173,6 @@ function CommandWeeklyTaskTracker() {
         return next;
     });
     setEditingTask(null);
-  };
-
-  const resetSailorTimer = (id) => {
-    setSailorTasks(prev => {
-       const updated = prev.map(t => {
-          if (t.id !== id) return t;
-          const newT = { ...t, runningSince: null, runningWorkers: {} };
-          updateTaskInDb(newT, selectedSailorUid);
-          return newT;
-       });
-       return updated;
-    });
   };
 
   const priorityMeta = (id) => PRIORITIES.find((p) => p.id === id) || PRIORITIES[1];
@@ -1231,65 +1266,6 @@ function CommandWeeklyTaskTracker() {
     });
   };
 
-  const toggleSailorTimer = (id) => {
-    setSailorTasks(prev => {
-       const updated = prev.map(t => {
-          if (t.id !== id) return t;
-          const runningWorkers = { ...(t.runningWorkers || {}) };
-          const contributors = { ...(t.contributors || {}) };
-          const now = Date.now();
-
-          if (runningWorkers[selectedSailorUid]) {
-            const startMs = new Date(runningWorkers[selectedSailorUid]).getTime();
-            const elapsed = Math.max(0, now - startMs);
-            contributors[selectedSailorUid] = (contributors[selectedSailorUid] || 0) + elapsed;
-            delete runningWorkers[selectedSailorUid];
-          } else {
-            runningWorkers[selectedSailorUid] = new Date().toISOString();
-          }
-
-          const newT = { ...t, contributors, runningWorkers };
-          updateTaskInDb(newT, selectedSailorUid);
-          return newT;
-       });
-       return updated;
-    });
-  };
-
-  const finishSailorTask = (id) => {
-    const completedTime = new Date().toISOString();
-    setSailorTasks(prev => {
-        const updated = prev.map(t => {
-            if (t.id !== id) return t;
-            const runningWorkers = { ...(t.runningWorkers || {}) };
-            const contributors = { ...(t.contributors || {}) };
-            const now = Date.now();
-            Object.keys(runningWorkers).forEach(u => {
-               const startMs = new Date(runningWorkers[u]).getTime();
-               contributors[u] = (contributors[u] || 0) + Math.max(0, now - startMs);
-            });
-
-            const newT = { ...t, runningWorkers: {}, contributors, done: true, completedAt: completedTime };
-            updateTaskInDb(newT, selectedSailorUid);
-            return newT;
-        });
-        return updated;
-    });
-  };
-
-  const saveSailorNote = (id, text) => {
-    const trimmed = text.trim();
-    setSailorTasks(prev => {
-       const updated = prev.map(t => {
-           if (t.id !== id) return t;
-           const newT = { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString(), updatedBy: userName } : null };
-           updateTaskInDb(newT, selectedSailorUid);
-           return newT;
-       });
-       return updated;
-    });
-  };
-
   const manHourDistribution = useMemo(() => {
     const contributorMap = {};
     tasks.forEach(t => {
@@ -1307,22 +1283,6 @@ function CommandWeeklyTaskTracker() {
     });
     return Object.keys(contributorMap).map(name => ({ name, hours: contributorMap[name] }));
   }, [tasks, shopSailors, nowTs, userName]);
-
-  const sailorManHourDistribution = useMemo(() => {
-    if (!selectedSailorUid) return [];
-    const contributorMap = {};
-    sailorTasks.forEach(t => {
-      if (t.contributors && t.contributors[selectedSailorUid]) {
-        const sailor = shopSailors.find(s => (s.uid || s.id) === selectedSailorUid);
-        const name = sailor ? (sailor.displayName || sailor.email) : "Sailor";
-        const totalMs = (t.contributors[selectedSailorUid] || 0) + (t.runningWorkers && t.runningWorkers[selectedSailorUid] ? Math.min(nowTs - new Date(t.runningWorkers[selectedSailorUid]).getTime(), MAX_SESSION_MS) : 0);
-        const hours = +(totalMs / 3600000).toFixed(2);
-        const label = t.text.length > 18 ? t.text.slice(0, 18) + "…" : t.text;
-        contributorMap[label] = (contributorMap[label] || 0) + hours;
-      }
-    });
-    return Object.keys(contributorMap).map(name => ({ name, hours: contributorMap[name] }));
-  }, [sailorTasks, selectedSailorUid, shopSailors, nowTs]);
 
   const analytics = useMemo(() => {
     const done = tasks.filter((t) => t.done && t.completedAt);
@@ -1567,33 +1527,45 @@ function CommandWeeklyTaskTracker() {
               <h3 className="font-mono text-xs tracking-widest text-teal-400">MANAGE USER PRIVILEGES & WORK CENTERS</h3>
               <button onClick={() => setShowUserManager(false)} className="text-slate-500 hover:text-white text-xs">✕</button>
             </div>
-            <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+            <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
               {shopSailors.map(s => {
                 const uid = s.uid || s.id;
-                const currentEdit = userEdits[uid] || { role: s.role || "sailor", workCenter: s.workCenter || "040" };
+                const currentEdit = userEdits[uid] || { role: s.role || "sailor", workCenters: s.workCenters || ["040"] };
                 return (
-                  <div key={uid} className="bg-slate-800 border border-slate-700 rounded-lg p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-bold text-white truncate">{s.displayName || s.email}</p>
-                      <p className="font-mono text-[10px] text-slate-400 truncate">{s.email}</p>
-                    </div>
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <div key={uid} className="bg-slate-800 border border-slate-700 rounded-lg p-3.5 flex flex-col gap-3">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-white truncate">{s.displayName || s.email}</p>
+                        <p className="font-mono text-[10px] text-slate-400 truncate">{s.email}</p>
+                      </div>
                       <select 
                         value={currentEdit.role} 
                         onChange={(e) => handleEditChange(uid, 'role', e.target.value)}
                         className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-teal-300 font-mono focus:outline-none"
                       >
-                        <option value="sailor">Sailor</option>
+                        <option value="sailor">Maintainer (Restricted)</option>
                         <option value="supervisor">Supervisor</option>
                         <option value="admin">Admin</option>
                       </select>
-                      <select 
-                        value={currentEdit.workCenter} 
-                        onChange={(e) => handleEditChange(uid, 'workCenter', e.target.value)}
-                        className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-amber-300 font-mono focus:outline-none"
-                      >
-                        {workCenters.map(wc => <option key={wc} value={wc}>WC: {wc}</option>)}
-                      </select>
+                    </div>
+                    <div>
+                      <p className="font-mono text-[10px] text-slate-400 mb-1.5">ASSIGNED WORK CENTERS:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {workCenters.map(wc => {
+                          const isSelected = currentEdit.workCenters.includes(wc);
+                          return (
+                            <button
+                              key={wc}
+                              type="button"
+                              onClick={() => toggleUserWorkCenterEdit(uid, wc)}
+                              className="font-mono text-xs px-2.5 py-1 rounded border transition-colors"
+                              style={isSelected ? { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, borderColor: ACCENT.teal } : { backgroundColor: "#0f172a", color: "#64748b", borderColor: "#334155" }}
+                            >
+                              WC: {wc} {isSelected ? "✓" : ""}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 );
@@ -1654,29 +1626,17 @@ function CommandWeeklyTaskTracker() {
                   className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-teal-400"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block font-mono text-[10px] text-slate-400 mb-1">WORK CENTER</label>
-                  <select 
-                    value={newProvWC} 
-                    onChange={(e) => setNewProvWC(e.target.value)} 
-                    className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none"
-                  >
-                    {workCenters.map(wc => <option key={wc} value={wc}>{wc}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-mono text-[10px] text-slate-400 mb-1">SYSTEM ROLE</label>
-                  <select 
-                    value={newProvRole} 
-                    onChange={(e) => setNewProvRole(e.target.value)} 
-                    className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none"
-                  >
-                    <option value="sailor">Sailor</option>
-                    <option value="supervisor">Supervisor</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block font-mono text-[10px] text-slate-400 mb-1">SYSTEM ROLE</label>
+                <select 
+                  value={newProvRole} 
+                  onChange={(e) => setNewProvRole(e.target.value)} 
+                  className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none"
+                >
+                  <option value="sailor">Maintainer (Restricted)</option>
+                  <option value="supervisor">Supervisor</option>
+                  <option value="admin">Admin</option>
+                </select>
               </div>
 
               <div className="flex justify-end gap-2 mt-6">
@@ -1824,6 +1784,7 @@ function CommandWeeklyTaskTracker() {
     }
 
     if (editingTask) {
+      if (isRestrictedSailor) return null;
       return (
         <ModalOverlay>
           <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-lg shadow-2xl">
@@ -1840,28 +1801,26 @@ function CommandWeeklyTaskTracker() {
                 </select>
                 <input type="date" value={editingTask.due || ""} onChange={(e) => setEditingTask({...editingTask, due: e.target.value})} className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none" />
               </div>
-              {(userRole === "supervisor" || userRole === "admin") && (
-                <div>
-                  <label className="block font-mono text-[10px] text-slate-400 mb-1">ASSIGNED WORKER / POOL</label>
-                  <select 
-                    value={editingTask.assignedTo || (window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "")} 
-                    onChange={(e) => setEditingTask({...editingTask, assignedTo: e.target.value})}
-                    className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-teal-300 font-mono focus:outline-none"
-                  >
-                    <option value={window.auth && window.auth.currentUser ? window.auth.currentUser.uid : ""}>👤 Assign to Me</option>
-                    <optgroup label="Work Center Pools">
-                      {workCenters.map(wc => <option key={wc} value={"WC-" + wc}>🏢 Work Center Pool: {wc}</option>)}
-                    </optgroup>
-                    <optgroup label="Individual Sailors">
-                      {shopSailors.map(s => (
-                        <option key={s.uid || s.id} value={s.uid || s.id}>
-                          👤 {s.displayName || s.email} [WC: {s.workCenter || "040"}]
-                        </option>
-                      ))}
-                    </optgroup>
-                  </select>
-                </div>
-              )}
+              <div>
+                <label className="block font-mono text-[10px] text-slate-400 mb-1">ASSIGNED WORKER / POOL</label>
+                <select 
+                  value={editingTask.assignedTo || (window.auth && window.auth.currentUser ? window.auth.currentUser.uid : "")} 
+                  onChange={(e) => setEditingTask({...editingTask, assignedTo: e.target.value})}
+                  className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-teal-300 font-mono focus:outline-none"
+                >
+                  <option value={window.auth && window.auth.currentUser ? window.auth.currentUser.uid : ""}>👤 Assign to Me</option>
+                  <optgroup label="Work Center Pools">
+                    {workCenters.map(wc => <option key={wc} value={"WC-" + wc}>🏢 Work Center Pool: {wc}</option>)}
+                  </optgroup>
+                  <optgroup label="Individual Sailors">
+                    {shopSailors.map(s => (
+                      <option key={s.uid || s.id} value={s.uid || s.id}>
+                        👤 {s.displayName || s.email}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setEditingTask(null)} className="font-mono text-xs tracking-wider px-4 py-2 rounded bg-slate-800 text-slate-400 border border-slate-700">CANCEL</button>
@@ -2040,7 +1999,7 @@ function CommandWeeklyTaskTracker() {
                     ) : (
                       filteredShopSailors.map((s) => (
                         <option key={s.uid || s.id} value={s.uid || s.id}>
-                          {s.displayName || s.email} [WC: {s.workCenter || "040"}] ({s.role.toUpperCase()})
+                          {s.displayName || s.email} (WC: {s.workCenters ? s.workCenters.join(",") : "040"})
                         </option>
                       ))
                     )}
@@ -2055,7 +2014,7 @@ function CommandWeeklyTaskTracker() {
                     <div className="flex-1 text-center md:text-left">
                       <p className="font-mono text-xs text-slate-500 tracking-widest mb-1">INSPECTING WORKER</p>
                       <h3 className="text-2xl font-bold text-white mb-1">{selectedSailorObj.displayName || selectedSailorObj.email}</h3>
-                      <p className="font-mono text-xs text-teal-400 tracking-wider mb-3">WORK CENTER: {selectedSailorObj.workCenter || "040"} · ROLE: {selectedSailorObj.role.toUpperCase()}</p>
+                      <p className="font-mono text-xs text-teal-400 tracking-wider mb-3">WORK CENTERS: {selectedSailorObj.workCenters ? selectedSailorObj.workCenters.join(", ") : "040"} · ROLE: {(selectedSailorObj.role || "sailor").toUpperCase()}</p>
                       <p className="text-xs text-slate-400">{oversightTotal === 0 ? "No active tasks assigned for this week." : `${oversightCompleted} of ${oversightTotal} tasks completed (${oversightPct}%).`}</p>
                     </div>
                   </div>
@@ -2077,44 +2036,6 @@ function CommandWeeklyTaskTracker() {
                     )}
                   </div>
                 </div>
-              )}
-            </section>
-
-            <section className="space-y-3">
-              <h3 className="font-mono text-xs tracking-widest text-slate-400 mb-2">ACTIVE ASSIGNED TASKS (SUPERVISOR OVERRIDE)</h3>
-              {sailorTasks.filter(t => !t.done).length === 0 ? (
-                <div className="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center text-slate-500 font-mono text-sm tracking-widest">NO ACTIVE TASKS PENDING FOR THIS SAILOR.</div>
-              ) : (
-                sailorTasks.filter(t => !t.done).map((t) => {
-                  const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
-                  const running = t.runningWorkers && t.runningWorkers[selectedSailorUid];
-                  const ms = totalTaskMs(t, nowTs);
-                  return (
-                    <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-lg p-4" style={{ borderLeft: "4px solid " + pm.color }}>
-                      <div className="flex items-start gap-3">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm sm:text-base text-white font-medium">{t.text}</p>
-                          <div className="flex flex-wrap items-center gap-2 mt-2">
-                            {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
-                            <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a" }}>{pm.label}</span>
-                            {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
-                          </div>
-                          
-                          <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
-                            <span className="font-mono text-sm font-bold tabular-nums tracking-wider" style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }}>⏱ {fmtDuration(ms)}</span>
-                            <button onClick={() => toggleSailorTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={running ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{running ? "❚❚ PAUSE" : ms > 0 ? "▶ RESUME" : "▶ START"}</button>
-                            {running && (
-                              <button onClick={() => resetSailorTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded bg-rose-950 text-rose-300 border border-rose-800 hover:bg-rose-900">⏹ RESET TIMER</button>
-                            )}
-                            <button onClick={() => finishSailorTask(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓ FINISH</button>
-                          </div>
-
-                          <TaskNotes task={t} onSaveNote={saveSailorNote} />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
               )}
             </section>
           </div>
@@ -2169,61 +2090,63 @@ function CommandWeeklyTaskTracker() {
               </div>
             </section>
 
-            <section className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6 shadow-sm">
-              <div className="flex flex-col gap-3">
-                <input 
-                  value={newText} 
-                  onChange={(e) => setNewText(e.target.value)} 
-                  onKeyDown={(e) => e.key === "Enter" && addTask()} 
-                  placeholder="What needs to get done?" 
-                  className={"w-full h-12 bg-slate-950 border rounded-lg px-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors shadow-inner " + (attemptedSubmit && !newText.trim() ? "border-rose-500" : "border-slate-700")} 
-                />
-                
-                <div className={`grid grid-cols-2 sm:grid-cols-3 ${canAssignTasks ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-2 items-center`}>
-                  <div className="w-full">
-                    <LabelPicker labels={labels} value={newLabel} onChange={setNewLabel} onCreateLabel={createLabel} />
-                  </div>
-                  <div className="w-full">
-                    <select value={newPriority} onChange={(e) => setNewPriority(e.target.value)} className="w-full h-10 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none hover:border-slate-500 transition-colors cursor-pointer">
-                      {PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-                    </select>
-                  </div>
-                  <div className="w-full">
-                    <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className={"w-full h-10 bg-slate-800 border rounded px-3 text-sm text-white focus:outline-none hover:border-slate-500 transition-colors cursor-pointer " + (attemptedSubmit && !newDue ? "border-rose-500" : "border-slate-700")} />
-                  </div>
-
-                  {canAssignTasks && (
+            {!isRestrictedSailor && (
+              <section className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6 shadow-sm">
+                <div className="flex flex-col gap-3">
+                  <input 
+                    value={newText} 
+                    onChange={(e) => setNewText(e.target.value)} 
+                    onKeyDown={(e) => e.key === "Enter" && addTask()} 
+                    placeholder="What needs to get done?" 
+                    className={"w-full h-12 bg-slate-950 border rounded-lg px-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors shadow-inner " + (attemptedSubmit && !newText.trim() ? "border-rose-500" : "border-slate-700")} 
+                  />
+                  
+                  <div className={`grid grid-cols-2 sm:grid-cols-3 ${canAssignTasks ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-2 items-center`}>
                     <div className="w-full">
-                      <select 
-                        value={assignedWorkerUid} 
-                        onChange={(e) => setAssignedWorkerUid(e.target.value)} 
-                        title="Assign worker"
-                        className="w-full h-10 bg-slate-800 border-2 border-teal-400 rounded px-3 text-xs text-teal-200 focus:outline-none hover:border-teal-300 transition-colors font-mono cursor-pointer"
-                      >
-                        <option value="">👤 Assign to Me</option>
-                        <optgroup label="Work Center Pools">
-                          {workCenters.map(wc => <option key={wc} value={"WC-" + wc}>🏢 Work Center Pool: {wc}</option>)}
-                        </optgroup>
-                        <optgroup label="Individual Sailors">
-                          {shopSailors.map(s => (
-                            <option key={s.uid || s.id} value={s.uid || s.id}>
-                              👤 {s.displayName || s.email}
-                            </option>
-                          ))}
-                        </optgroup>
+                      <LabelPicker labels={labels} value={newLabel} onChange={setNewLabel} onCreateLabel={createLabel} />
+                    </div>
+                    <div className="w-full">
+                      <select value={newPriority} onChange={(e) => setNewPriority(e.target.value)} className="w-full h-10 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none hover:border-slate-500 transition-colors cursor-pointer">
+                        {PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
                       </select>
                     </div>
-                  )}
+                    <div className="w-full">
+                      <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className={"w-full h-10 bg-slate-800 border rounded px-3 text-sm text-white focus:outline-none hover:border-slate-500 transition-colors cursor-pointer " + (attemptedSubmit && !newDue ? "border-rose-500" : "border-slate-700")} />
+                    </div>
 
-                  <div className="w-full">
-                    <button onClick={() => setWritingNewNote(true)} className="w-full h-10 font-mono text-xs font-bold tracking-widest px-3 rounded transition-colors flex items-center justify-center shrink-0" style={{ backgroundColor: newNote.trim() ? ACCENT.teal + "22" : "transparent", color: newNote.trim() ? ACCENT.teal : "#94a3b8", border: "1px solid " + (newNote.trim() ? ACCENT.teal + "66" : "#475569") }}>{newNote.trim() ? "📝 NOTE" : "📝 ADD NOTE"}</button>
-                  </div>
-                  <div className="w-full">
-                    <button onClick={addTask} className="w-full h-10 font-mono text-xs font-bold tracking-widest px-4 rounded active:scale-95 transition-transform flex items-center justify-center shrink-0 shadow-lg hover:brightness-110" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>+ ADD TASK</button>
+                    {canAssignTasks && (
+                      <div className="w-full">
+                        <select 
+                          value={assignedWorkerUid} 
+                          onChange={(e) => setAssignedWorkerUid(e.target.value)} 
+                          title="Assign worker"
+                          className="w-full h-10 bg-slate-800 border-2 border-teal-400 rounded px-3 text-xs text-teal-200 focus:outline-none hover:border-teal-300 transition-colors font-mono cursor-pointer"
+                        >
+                          <option value="">👤 Assign to Me</option>
+                          <optgroup label="Work Center Pools">
+                            {workCenters.map(wc => <option key={wc} value={"WC-" + wc}>🏢 Work Center Pool: {wc}</option>)}
+                          </optgroup>
+                          <optgroup label="Individual Sailors">
+                            {shopSailors.map(s => (
+                              <option key={s.uid || s.id} value={s.uid || s.id}>
+                                👤 {s.displayName || s.email}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="w-full">
+                      <button onClick={() => setWritingNewNote(true)} className="w-full h-10 font-mono text-xs font-bold tracking-widest px-3 rounded transition-colors flex items-center justify-center shrink-0" style={{ backgroundColor: newNote.trim() ? ACCENT.teal + "22" : "transparent", color: newNote.trim() ? ACCENT.teal : "#94a3b8", border: "1px solid " + (newNote.trim() ? ACCENT.teal + "66" : "#475569") }}>{newNote.trim() ? "📝 NOTE" : "📝 ADD NOTE"}</button>
+                    </div>
+                    <div className="w-full">
+                      <button onClick={addTask} className="w-full h-10 font-mono text-xs font-bold tracking-widest px-4 rounded active:scale-95 transition-transform flex items-center justify-center shrink-0 shadow-lg hover:brightness-110" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>+ ADD TASK</button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </section>
+              </section>
+            )}
 
             <div className="flex flex-col sm:flex-row justify-between items-center gap-3 mb-4 bg-slate-900 border border-slate-800 rounded-lg px-4 py-2.5">
               <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -2255,7 +2178,9 @@ function CommandWeeklyTaskTracker() {
                   return (
                     <div key={t.id} className={"bg-slate-900 border border-slate-800 rounded-lg p-4 " + (!thisWeek ? "opacity-70" : "")} style={{ borderLeft: "4px solid " + pm.color }}>
                       <div className="flex items-start gap-3">
-                        <button onClick={() => triggerAction('complete', t.id)} className="mt-0.5 w-6 h-6 shrink-0 rounded border-2 flex items-center justify-center transition-colors hover:border-slate-400" style={{ borderColor: "#475569" }} />
+                        {!isRestrictedSailor && (
+                          <button onClick={() => triggerAction('complete', t.id)} className="mt-0.5 w-6 h-6 shrink-0 rounded border-2 flex items-center justify-center transition-colors hover:border-slate-400" style={{ borderColor: "#475569" }} />
+                        )}
                         <div className="flex-1 min-w-0">
                           <p className="text-sm sm:text-base text-white">{t.text}</p>
                           <div className="flex flex-wrap items-center gap-2 mt-2">
@@ -2273,11 +2198,13 @@ function CommandWeeklyTaskTracker() {
                           </div>
                           <TaskNotes task={t} onSaveNote={saveTaskNote} />
                         </div>
-                        <div className="flex gap-1 shrink-0">
-                          <button onClick={() => moveToNextWeek(t.id)} title="Push out 7 days" className="p-2 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 3.5v8l5-4-5-4zM8 3.5v8l5-4-5-4z" fill="currentColor" /></svg></button>
-                          <button onClick={() => setEditingTask(t)} title="Edit task & reassign" className="p-2 rounded text-slate-500 hover:text-white hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10.5 2.5l2 2L5 12l-2.5.5L3 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg></button>
-                          <button onClick={() => triggerAction('delete', t.id)} title="Delete task" className="p-2 rounded text-slate-500 hover:text-rose-500 hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
-                        </div>
+                        {!isRestrictedSailor && (
+                          <div className="flex gap-1 shrink-0">
+                            <button onClick={() => moveToNextWeek(t.id)} title="Push out 7 days" className="p-2 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 3.5v8l5-4-5-4zM8 3.5v8l5-4-5-4z" fill="currentColor" /></svg></button>
+                            <button onClick={() => setEditingTask(t)} title="Edit task & reassign" className="p-2 rounded text-slate-500 hover:text-white hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10.5 2.5l2 2L5 12l-2.5.5L3 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg></button>
+                            <button onClick={() => triggerAction('delete', t.id)} title="Delete task" className="p-2 rounded text-slate-500 hover:text-rose-500 hover:bg-slate-800"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -2295,12 +2222,16 @@ function CommandWeeklyTaskTracker() {
                     <div key={t.id} className={"bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between " + (!thisWeek ? "opacity-70" : "")} style={{ borderTop: "4px solid " + pm.color }}>
                       <div>
                         <div className="flex justify-between items-start gap-2 mb-2">
-                          <button onClick={() => triggerAction('complete', t.id)} className="w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center transition-colors hover:border-slate-400 mt-0.5" style={{ borderColor: "#475569" }} />
-                          <div className="flex gap-1">
-                            <button onClick={() => moveToNextWeek(t.id)} title="Push out 7 days" className="p-1.5 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><svg width="13" height="13" viewBox="0 0 15 15" fill="none"><path d="M2 3.5v8l5-4-5-4zM8 3.5v8l5-4-5-4z" fill="currentColor" /></svg></button>
-                            <button onClick={() => setEditingTask(t)} title="Edit task & reassign" className="p-1.5 rounded text-slate-500 hover:text-white hover:bg-slate-800"><svg width="13" height="13" viewBox="0 0 15 15" fill="none"><path d="M10.5 2.5l2 2L5 12l-2.5.5L3 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg></button>
-                            <button onClick={() => triggerAction('delete', t.id)} title="Delete task" className="p-1.5 rounded text-slate-500 hover:text-rose-500 hover:bg-slate-800"><svg width="13" height="13" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
-                          </div>
+                          {!isRestrictedSailor ? (
+                            <button onClick={() => triggerAction('complete', t.id)} className="w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center transition-colors hover:border-slate-400 mt-0.5" style={{ borderColor: "#475569" }} />
+                          ) : <div />}
+                          {!isRestrictedSailor && (
+                            <div className="flex gap-1">
+                              <button onClick={() => moveToNextWeek(t.id)} title="Push out 7 days" className="p-1.5 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><svg width="13" height="13" viewBox="0 0 15 15" fill="none"><path d="M2 3.5v8l5-4-5-4zM8 3.5v8l5-4-5-4z" fill="currentColor" /></svg></button>
+                              <button onClick={() => setEditingTask(t)} title="Edit task & reassign" className="p-1.5 rounded text-slate-500 hover:text-white hover:bg-slate-800"><svg width="13" height="13" viewBox="0 0 15 15" fill="none"><path d="M10.5 2.5l2 2L5 12l-2.5.5L3 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg></button>
+                              <button onClick={() => triggerAction('delete', t.id)} title="Delete task" className="p-1.5 rounded text-slate-500 hover:text-rose-500 hover:bg-slate-800"><svg width="13" height="13" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
+                            </div>
+                          )}
                         </div>
                         <p className="text-sm text-white font-medium mb-3 leading-snug">{t.text}</p>
                         <div className="flex flex-wrap items-center gap-1.5 mb-3">
@@ -2346,7 +2277,9 @@ function CommandWeeklyTaskTracker() {
                   const pm = priorityMeta(t.priority);
                   return (
                     <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-lg p-3 flex items-start gap-3" style={{ borderLeft: "4px solid " + pm.color + "55" }}>
-                      <button onClick={() => uncheckTask(t.id)} className="mt-0.5 w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center" style={{ borderColor: ACCENT.teal, backgroundColor: ACCENT.teal }}><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5L5.5 11L12 3.5" stroke="#04241f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+                      {!isRestrictedSailor && (
+                        <button onClick={() => uncheckTask(t.id)} className="mt-0.5 w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center" style={{ borderColor: ACCENT.teal, backgroundColor: ACCENT.teal }}><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5L5.5 11L12 3.5" stroke="#04241f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+                      )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-slate-400 line-through">{t.text}</p>
                         <div className="flex gap-2 mt-1.5 font-mono text-[10px] tracking-widest text-slate-500">
@@ -2355,7 +2288,9 @@ function CommandWeeklyTaskTracker() {
                         </div>
                         <TaskNotes task={t} onSaveNote={saveTaskNote} compact />
                       </div>
-                      <button onClick={() => triggerAction('delete', t.id)} className="p-1.5 rounded text-slate-600 hover:text-rose-500 hover:bg-slate-800"><svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
+                      {!isRestrictedSailor && (
+                        <button onClick={() => triggerAction('delete', t.id)} className="p-1.5 rounded text-slate-600 hover:text-rose-500 hover:bg-slate-800"><svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M3 4h9M6 4V2.5h3V4M4 4l.7 8.5h5.6L11 4M6.2 6.5v4M8.8 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg></button>
+                      )}
                     </div>
                   );
                 })
