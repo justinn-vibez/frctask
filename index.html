@@ -2079,20 +2079,32 @@ function CommandWeeklyTaskTracker() {
 
       const renderTVTask = (t) => {
           const pm = priorityMeta(t.priority), lColor = getLabelColor(t.label);
-          const running = t.runningWorkers && Object.keys(t.runningWorkers).length > 0;
+          const isCurrentUserRunning = t.runningWorkers && t.runningWorkers[currentUid];
+          const isAnyoneRunning = t.runningWorkers && Object.keys(t.runningWorkers).length > 0;
           const ms = totalTaskMs(t, nowTs);
           return (
-            <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex items-center gap-6" style={{ borderLeft: "8px solid " + pm.color }}>
+            <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6" style={{ borderLeft: "8px solid " + pm.color }}>
                 <div className="flex-1">
                     <p className="text-xl sm:text-2xl text-white mb-3 leading-snug">{t.text}</p>
-                    <div className="flex gap-3 items-center">
+                    <div className="flex flex-wrap gap-3 items-center">
                         {t.label && <span className="font-mono text-sm tracking-widest px-3 py-1 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
                         <span className="font-mono text-sm tracking-widest px-3 py-1 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a" }}>{pm.label}</span>
                         {t.due && <span className="font-mono text-xs tracking-widest px-2 py-1 rounded border border-slate-700 text-slate-400">{dueLabelTxt(t.due)}</span>}
                         {t.assignedTo && <span className="font-mono text-xs tracking-widest px-2 py-1 rounded bg-teal-950 text-teal-300 border border-teal-800">{getWorkerName(t.assignedTo)}</span>}
                     </div>
                 </div>
-                {(ms > 0 || running) && <div className="shrink-0 text-3xl font-mono tabular-nums font-bold flex items-center gap-2" style={{ color: running ? ACCENT.amber : "#475569" }}>⏱ {fmtDuration(ms)} <CollaboratorPopover task={t} nowTs={nowTs} shopSailors={shopSailors} currentUid={currentUid} userName={userName} /></div>}
+                <div className="flex flex-wrap items-center gap-3 shrink-0">
+                    <span className="text-2xl font-mono tabular-nums font-bold flex items-center gap-2" style={{ color: isAnyoneRunning ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569" }}>
+                      ⏱ {fmtDuration(ms)} 
+                      <CollaboratorPopover task={t} nowTs={nowTs} shopSailors={shopSailors} currentUid={currentUid} userName={userName} />
+                    </span>
+                    <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-xs font-bold tracking-widest px-4 py-2 rounded" style={isCurrentUserRunning ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>
+                      {isCurrentUserRunning ? "❚❚ CLOCK OUT" : ms > 0 ? "▶ RESUME" : "▶ CLOCK IN"}
+                    </button>
+                    <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-xs font-bold tracking-widest px-4 py-2 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
+                      ✓ FINISH
+                    </button>
+                </div>
             </div>
           );
       };
