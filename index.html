@@ -659,14 +659,14 @@ function CommandWeeklyTaskTracker() {
 
   const applyAllUserPermissions = async () => {
     if (!window.db || !window.dbOperations) return;
-    const { doc, updateDoc } = window.dbOperations;
+    const { doc, setDoc } = window.dbOperations;
     try {
       const promises = Object.keys(userEdits).map(async (uid) => {
         const edits = userEdits[uid];
-        await updateDoc(doc(window.db, "users", uid), {
+        await setDoc(doc(window.db, "users", uid), {
           role: edits.role,
           workCenters: edits.workCenters
-        });
+        }, { merge: true });
       });
 
       await Promise.all(promises);
@@ -674,10 +674,25 @@ function CommandWeeklyTaskTracker() {
       setShopSailors(prev => prev.map(s => {
         const uid = s.uid || s.id;
         if (userEdits[uid]) {
-          return { ...s, role: userEdits[uid].role, workCenters: userEdits[uid].workCenters, workCenter: userEdits[uid].workCenters[0] || "040" };
+          return { 
+            ...s, 
+            role: userEdits[uid].role, 
+            workCenters: userEdits[uid].workCenters, 
+            workCenter: userEdits[uid].workCenters[0] || "040" 
+          };
         }
         return s;
       }));
+
+      setShowUserManager(false);
+      setErrorAlert("success: User privileges and work centers updated successfully.");
+      setTimeout(() => setErrorAlert(null), 4000);
+    } catch (e) {
+      console.error("Error updating user privileges:", e);
+      setErrorAlert("Error: Failed to update user privileges. Check Firestore permissions.");
+      setTimeout(() => setErrorAlert(null), 5000);
+    }
+  };
 
       setShowUserManager(false);
       setErrorAlert("success: User privileges and work centers updated successfully.");
