@@ -468,7 +468,6 @@ const initializeUserProfile = async (user, officialName = "", workCenters = ["04
   }
 };
 
-// Resolves the Firestore doc reference for a task from its assignedTo (uid or "WC-<code>"), without touching other fields.
 const taskDocRef = (assignedTo, taskId) => {
   if (!window.db || !window.dbOperations || !assignedTo) return null;
   const { doc } = window.dbOperations;
@@ -478,7 +477,6 @@ const taskDocRef = (assignedTo, taskId) => {
   return doc(window.db, "users", assignedTo, "tasks", String(taskId));
 };
 
-// Partial field update — safe against concurrent edits to unrelated fields (e.g. another user's running timer).
 const updateTaskFieldsInDb = async (assignedTo, taskId, fields) => {
   const ref = taskDocRef(assignedTo, taskId);
   if (!ref) return;
@@ -489,8 +487,6 @@ const updateTaskFieldsInDb = async (assignedTo, taskId, fields) => {
   }
 };
 
-// Clock in/out writes only the toggling user's own contributors/runningWorkers keys via dot-path field
-// updates, so two sailors timing the same task concurrently can never clobber each other's session.
 const toggleTimerInDb = async (assignedTo, taskId, uid, starting, isoTime, elapsedMs) => {
   const ref = taskDocRef(assignedTo, taskId);
   if (!ref) return;
@@ -509,8 +505,6 @@ const toggleTimerInDb = async (assignedTo, taskId, uid, starting, isoTime, elaps
   }
 };
 
-// Completing a task folds every currently-running worker's session into contributors. Runs as a
-// transaction against the server's live document so it can't discard a session someone just clocked into.
 const finishTaskInDb = async (assignedTo, taskId, completedTime) => {
   const ref = taskDocRef(assignedTo, taskId);
   if (!ref || !window.dbOperations) return;
@@ -545,8 +539,6 @@ const saveLabelsToCloud = async (list) => {
   }
 };
 
-// Pure task-analytics reducer — reused for the current user's own tasks, an oversight-selected
-// sailor's tasks, and a division-wide rollup, so all three views compute metrics identically.
 function computeAnalytics(taskList, nowTs) {
   const done = taskList.filter((t) => t.done && t.completedAt);
   const now = new Date();
@@ -637,7 +629,7 @@ function computeAnalytics(taskList, nowTs) {
   }
 
   let bestStreak = 0, run = 0, prevWeekday = null;
-  [...doneDays].sort().forEach((k) => {
+   [...doneDays].sort().forEach((k) => {
     const [y, m, d] = k.split("-").map(Number);
     const cur = new Date(y, m - 1, d);
     if (!isWeekday(cur)) return;
@@ -669,7 +661,6 @@ function computeAnalytics(taskList, nowTs) {
   };
 }
 
-// Pure man-hour-by-contributor reducer — same shape used for the current user's tasks and a division rollup.
 function computeManHourDistribution(taskList, shopSailors, currentUid, currentUserName, nowTs) {
   const contributorMap = {};
   taskList.forEach(t => {
@@ -776,7 +767,7 @@ function CommandWeeklyTaskTracker() {
       const cred = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, newProvPass);
       const newUid = cred.user.uid;
 
-      const { doc, setDoc, collection, getDocs } = window.dbOperations;
+      const { doc, setDoc } = window.dbOperations;
       await setDoc(doc(window.db, "users", newUid), {
         uid: newUid,
         email: cleanEmail,
@@ -791,10 +782,6 @@ function CommandWeeklyTaskTracker() {
       
       setProvSuccess({ type: "success", text: `Successfully created user [${newProvUser}].` });
       setNewProvUser(""); setNewProvPass(""); setNewProvName("");
-
-      const usersSnap = await getDocs(collection(window.db, "users"));
-      const sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setShopSailors(sailors);
     } catch (err) {
       setProvSuccess({ type: "error", text: err.message.replace("Firebase: ", "") });
     }
@@ -815,9 +802,6 @@ function CommandWeeklyTaskTracker() {
     lsSet(WORK_CENTERS_KEY, next);
   };
 
-  // Manage Users only ever seeds *display* state here — nothing in this function writes to
-  // Firestore, and a sailor with no workCenters on file stays empty rather than being fabricated
-  // as ["040"], so an untouched sailor can never round-trip a fake default back into the database.
   const openUserManager = () => {
     const initialEdits = {};
     shopSailors.forEach(s => {
@@ -862,47 +846,40 @@ function CommandWeeklyTaskTracker() {
     setWcEditedUids(prev => new Set(prev).add(uid));
   };
 
-  // Only sailors the admin actually touched this session get written — everyone else's
-  // role/workCenters are left completely alone, even though userEdits holds seeded display
-  // values for all of them. This is the fix for work centers silently resetting to 040 on
-  // every "Apply Changes" click.
-  const applyAllUserPermissions = () => {
-    setShowUserManager(false);
-    setErrorAlert("success: User privileges and work centers updated successfully.");
-    setTimeout(() => setErrorAlert(null), 4000);
-
+  // Fixed: Awaits Firestore updates and surfaces errors if Firestore rules reject the write.
+  const applyAllUserPermissions = async () => {
     const touchedUids = new Set([...roleEditedUids, ...wcEditedUids]);
-
-    setShopSailors(prev => prev.map(s => {
-      const uid = s.uid || s.id;
-      if (!touchedUids.has(uid) || !userEdits[uid]) return s;
-      const next = { ...s };
-      if (roleEditedUids.has(uid)) next.role = userEdits[uid].role;
-      if (wcEditedUids.has(uid)) {
-        next.workCenters = userEdits[uid].workCenters;
-        next.workCenter = userEdits[uid].workCenters[0] || next.workCenter;
-      }
-      return next;
-    }));
+    if (touchedUids.size === 0) {
+      setShowUserManager(false);
+      return;
+    }
 
     if (window.db && window.dbOperations) {
       const { doc, setDoc } = window.dbOperations;
-      touchedUids.forEach(async (uid) => {
-        const edits = userEdits[uid];
-        if (!edits) return;
-        const payload = {};
-        if (roleEditedUids.has(uid)) payload.role = edits.role;
-        if (wcEditedUids.has(uid)) {
-          payload.workCenters = edits.workCenters;
-          payload.workCenter = edits.workCenters[0] || "040";
+      try {
+        for (const uid of touchedUids) {
+          const edits = userEdits[uid];
+          if (!edits) continue;
+          const payload = {};
+          if (roleEditedUids.has(uid)) payload.role = edits.role;
+          if (wcEditedUids.has(uid)) {
+            payload.workCenters = edits.workCenters;
+            payload.workCenter = edits.workCenters[0] || "040";
+          }
+          if (Object.keys(payload).length > 0) {
+            await setDoc(doc(window.db, "users", uid), payload, { merge: true });
+          }
         }
-        if (Object.keys(payload).length === 0) return;
-        try {
-          await setDoc(doc(window.db, "users", uid), payload, { merge: true });
-        } catch (err) {
-          console.warn(`Background cloud write restricted for ${uid}:`, err);
-        }
-      });
+        setShowUserManager(false);
+        setErrorAlert("success: User privileges and work centers updated successfully.");
+        setTimeout(() => setErrorAlert(null), 4000);
+      } catch (err) {
+        console.error("Error updating user permissions:", err);
+        setErrorAlert("Permission Denied: Firebase rules block updating user roles/work centers.");
+        setTimeout(() => setErrorAlert(null), 6000);
+      }
+    } else {
+      setShowUserManager(false);
     }
   };
 
@@ -964,17 +941,18 @@ function CommandWeeklyTaskTracker() {
   const [sortMode, setSortMode] = useState("default");
   const [viewMode, setViewMode] = useState("list");
 
-  // Main Authentication and Personal Task Snapshot Listener
+  // Main Authentication and Real-time Listeners (including live users onSnapshot sync)
   useEffect(() => {
     let unsubscribeAuth = null;
     let unsubscribeTasks = null;
+    let unsubscribeUsers = null;
     let unsubscribePoolTasks = [];
     
     const safetyTimer = setTimeout(() => { setLoaded(true); }, 2500);
 
     if (window.auth && window.authOperations && window.db && window.dbOperations) {
       const { onAuthStateChanged } = window.authOperations;
-      const { collection, onSnapshot, doc, getDoc, getDocs } = window.dbOperations; 
+      const { collection, onSnapshot, doc, getDoc } = window.dbOperations; 
 
       unsubscribeAuth = onAuthStateChanged(window.auth, async (user) => {
         if (user) {
@@ -993,13 +971,16 @@ function CommandWeeklyTaskTracker() {
               }
             }
 
-            const usersSnap = await getDocs(collection(window.db, "users"));
-            let sailors = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-            setShopSailors(sailors);
-            
-            if (sailors.length > 0) {
-              setSelectedSailorUid(prev => prev || (sailors[0].uid || sailors[0].id));
-            }
+            // Real-time live sync listener for shop personnel
+            if (unsubscribeUsers) unsubscribeUsers();
+            unsubscribeUsers = onSnapshot(collection(window.db, "users"), (snapshot) => {
+              const sailors = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+              setShopSailors(sailors);
+              setSelectedSailorUid(prev => prev || (sailors.length > 0 ? (sailors[0].uid || sailors[0].id) : null));
+            }, (err) => {
+              console.error("Users snapshot error:", err);
+            });
+
           } catch(e) {
             console.error("Error during initial fetch:", e);
           }
@@ -1074,6 +1055,7 @@ function CommandWeeklyTaskTracker() {
           setAskingName(true);
           setTasks([]);
           if (unsubscribeTasks) unsubscribeTasks();
+          if (unsubscribeUsers) unsubscribeUsers();
           if (unsubscribePoolTasks.length > 0) {
             unsubscribePoolTasks.forEach(unsub => unsub());
             unsubscribePoolTasks = [];
@@ -1087,6 +1069,7 @@ function CommandWeeklyTaskTracker() {
         clearTimeout(safetyTimer);
         if (unsubscribeAuth) unsubscribeAuth();
         if (unsubscribeTasks) unsubscribeTasks();
+        if (unsubscribeUsers) unsubscribeUsers();
         if (unsubscribePoolTasks.length > 0) unsubscribePoolTasks.forEach(unsub => unsub());
       };
     } else {
@@ -1101,9 +1084,6 @@ function CommandWeeklyTaskTracker() {
     }
   }, []);
 
-  // Performance Ticker: Updates `nowTs` every second ONLY when active timers are running.
-  // Depends on the derived boolean (not `tasks` itself) so the interval isn't torn down and
-  // recreated on every snapshot update — only when a timer actually starts or stops.
   const hasRunningTimers = useMemo(
     () => tasks.some(t => t.runningWorkers && Object.keys(t.runningWorkers).length > 0),
     [tasks]
@@ -1122,7 +1102,6 @@ function CommandWeeklyTaskTracker() {
     });
   }, [shopSailors, selectedWcFilter]);
 
-  // Admin Oversight Task Listener (Fetches selected sailor's tasks directly in the Admin Panel)
   useEffect(() => {
     setSailorSubTab("active");
     if (tab !== "oversight" || !selectedSailorUid || !window.db || !window.dbOperations) return;
@@ -1134,9 +1113,6 @@ function CommandWeeklyTaskTracker() {
     return () => unsub();
   }, [tab, selectedSailorUid]);
 
-  // Division-Wide Rollup: one onSnapshot listener per WC-filtered sailor's task collection,
-  // keyed by uid so different sailors' task ids can never collide when merged. Only runs while
-  // the toggle is on, and fully tears down (and clears state) when it's switched off.
   const filteredSailorUidsKey = filteredShopSailors.map(s => s.uid || s.id).join(",");
   useEffect(() => {
     if (tab !== "oversight" || !showDivisionRollup || !window.db || !window.dbOperations) {
@@ -1387,8 +1363,6 @@ function CommandWeeklyTaskTracker() {
       const { runTransaction, updateDoc } = window.dbOperations;
       try {
         if (oldAssignedTo !== newAssignedTo) {
-          // Reassignment moves the doc between collections — do it as a transaction against the
-          // live server doc so the sailor's own contributors/runningWorkers timer state survives the move.
           const oldRef = taskDocRef(oldAssignedTo, editingTask.id);
           const newRef = taskDocRef(newAssignedTo, editingTask.id);
           await runTransaction(window.db, async (tx) => {
@@ -1861,32 +1835,32 @@ function CommandWeeklyTaskTracker() {
                     <h4 className="font-mono text-[10px] tracking-widest text-slate-400 mb-2">CREATE NEW LABEL</h4>
                     <div className="flex gap-2 mb-3">
                         <input 
-                          value={newManagerLabel} 
-                          onChange={e=>setNewManagerLabel(e.target.value)} 
-                          onKeyDown={(e) => { 
-                            if (e.key === "Enter") { 
+                            value={newManagerLabel} 
+                            onChange={e=>setNewManagerLabel(e.target.value)} 
+                            onKeyDown={(e) => { 
+                              if (e.key === "Enter") { 
+                                const n = newManagerLabel.trim(); 
+                                if (n) { 
+                                  createLabel({name: n, color: newManagerColor}); 
+                                  setNewManagerLabel(""); 
+                                } 
+                              } 
+                            }} 
+                            className="flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none" 
+                            placeholder="Label name..." 
+                        />
+                        <button 
+                            onClick={() => { 
                               const n = newManagerLabel.trim(); 
-                              if (n) { 
+                              if(n) { 
                                 createLabel({name: n, color: newManagerColor}); 
                                 setNewManagerLabel(""); 
                               } 
-                            } 
-                          }} 
-                          className="flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none" 
-                          placeholder="Label name..." 
-                        />
-                        <button 
-                          onClick={() => { 
-                            const n = newManagerLabel.trim(); 
-                            if(n) { 
-                              createLabel({name: n, color: newManagerColor}); 
-                              setNewManagerLabel(""); 
-                            } 
-                          }} 
-                          className="font-mono text-[10px] font-bold tracking-widest px-3 rounded" 
-                          style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}
+                            }} 
+                            className="font-mono text-[10px] font-bold tracking-widest px-3 rounded" 
+                            style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}
                         >
-                          ADD
+                            ADD
                         </button>
                     </div>
                     <div className="flex gap-1 justify-between">
@@ -2055,7 +2029,6 @@ function CommandWeeklyTaskTracker() {
       {celebrate && <Confetti />}
       {renderModals()}
 
-      {/* GLOBAL ERROR / SUCCESS ALERT */}
       {errorAlert && (
         <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 rounded-lg shadow-2xl font-mono text-sm tracking-widest border flex items-center gap-4 ${errorAlert.includes("success") ? "bg-teal-950/90 border-teal-500 text-teal-300" : "bg-rose-950/90 border-rose-500 text-rose-300"}`}>
             <span>{errorAlert}</span>
@@ -2165,7 +2138,6 @@ function CommandWeeklyTaskTracker() {
                     </div>
                   </div>
 
-                  {/* WORKER PROFILE SUB-TABS (ADMIN PANEL OVERSIGHT) */}
                   <div className="flex gap-2 bg-slate-950 border border-slate-800 rounded-lg p-1 w-fit">
                     <button onClick={() => setSailorSubTab("active")} className="font-mono text-[10px] font-bold tracking-widest px-4 py-2 rounded transition-colors" style={sailorSubTab === "active" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>
                       ACTIVE TASKS ({sailorTasks.filter(t => !t.done).length})
@@ -2249,7 +2221,6 @@ function CommandWeeklyTaskTracker() {
                     )}
                   </div>
 
-                  {/* PER-WORKER ANALYTICS DASHBOARD, WITH DIVISION-WIDE ROLLUP TOGGLE */}
                   <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 space-y-4">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                       <div>
