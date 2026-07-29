@@ -2006,25 +2006,29 @@ function CommandWeeklyTaskTracker() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <span className="font-mono text-[10px] text-slate-400 tracking-widest">SELECT SAILOR:</span>
+              <div className="flex items-center gap-2 w-full sm:w-auto max-w-full">
+                  <span className="font-mono text-[10px] text-slate-400 tracking-widest whitespace-nowrap">SELECT SAILOR:</span>
                   <select 
                     value={selectedSailorUid || ""} 
                     onChange={(e) => setSelectedSailorUid(e.target.value)} 
-                    className="h-10 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none font-mono"
+                    className="h-10 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none font-mono truncate w-full sm:w-64"
                   >
                     {filteredShopSailors.length === 0 ? (
                       <option value="" disabled>No personnel found in filter</option>
                     ) : (
-                      filteredShopSailors.map((s) => (
-                        <option key={s.uid || s.id} value={s.uid || s.id}>
-                          {s.displayName || s.email} (WC: {s.workCenters ? s.workCenters.join(",") : "040"})
-                        </option>
-                      ))
+                      filteredShopSailors.map((s) => {
+                        const wcText = s.workCenters && s.workCenters.length > 3 
+                                     ? s.workCenters.slice(0, 3).join(", ") + "..." 
+                                     : (s.workCenters ? s.workCenters.join(", ") : "040");
+                        return (
+                          <option key={s.uid || s.id} value={s.uid || s.id}>
+                            {s.displayName || s.email} (WC: {wcText})
+                          </option>
+                        );
+                      })
                     )}
                   </select>
                 </div>
-              </div>
 
               {selectedSailorObj && (
                 <div className="space-y-6">
