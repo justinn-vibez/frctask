@@ -16,7 +16,7 @@
   <!-- Firebase Module Script -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc, getDoc, runTransaction, increment, deleteField } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
     import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
     const firebaseConfig = {
@@ -38,7 +38,7 @@
     window.getFirestore = getFirestore;
     window.db = db;
     window.auth = auth;
-    window.dbOperations = { collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc, getDoc };
+    window.dbOperations = { collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc, setDoc, getDoc, runTransaction, increment, deleteField };
     window.authOperations = { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged };
   </script>
 
@@ -252,6 +252,41 @@ function ProgressRing({ pct, completed, total, size = 170, stroke = 13 }) {
   );
 }
 
+function GuidedTour({ onComplete }) {
+  const [step, setStep] = useState(0);
+  const steps = [
+    { title: "Welcome to Red Bird Readiness.", text: "This dashboard was built by AZ2 Medrano to streamline tasks, kill bottlenecks, and ditch scattered sticky notes. Remember your password, and please bring any suggestions or bugs straight to AZ2 Medrano—and be sure to thank him for creating this incredible tracker!", icon: "🚀" },
+    { title: "The Home & Active Board", text: "Start on the welcome home screen featuring the progress ring centerpiece, then jump into Active Tasks to prioritize, set due dates, tag labels, and use Finder-style tiles or list views.", icon: "📋" },
+    { title: "History & Analytics", text: "We've separated your completed task logs (History) from the robust charts and metrics (Analytics) so you can easily track throughput and future task-level metrics.", icon: "📊" },
+    { title: "TV Display Mode", text: "Click the 📺 TV MODE button at the top right to strip away the clutter. It blows up the progress ring and organizes the daily hit-list perfectly for the shop's big monitor.", icon: "📺" }
+  ];
+
+  return (
+    <ModalOverlay zIndex="z-[70]">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl p-8 w-full max-w-lg shadow-2xl tour-card relative overflow-hidden">
+        <div className="absolute top-0 left-0 h-1 bg-slate-800 w-full">
+            <div className="h-full transition-all duration-300" style={{ width: `${((step + 1) / steps.length) * 100}%`, backgroundColor: ACCENT.teal }} />
+        </div>
+        <div className="text-5xl mb-6 mt-2">{steps[step].icon}</div>
+        <h2 className="text-2xl font-bold text-white mb-3 tracking-tight">{steps[step].title}</h2>
+        <p className="text-slate-400 mb-8 leading-relaxed text-lg">{steps[step].text}</p>
+        <div className="flex justify-between items-center">
+          <div className="flex gap-2">
+            {steps.map((_, i) => (
+                <div key={i} className={`w-2 h-2 rounded-full transition-colors ${i === step ? 'bg-teal-400' : 'bg-slate-700'}`} />
+            ))}
+          </div>
+          <button onClick={() => step < steps.length - 1 ? setStep(s => s + 1) : onComplete()}
+                className="font-mono text-sm font-bold tracking-widest px-6 py-2.5 rounded transition-transform active:scale-95"
+                style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
+            {step < steps.length - 1 ? "NEXT ➔" : "GET TO WORK"}
+          </button>
+        </div>
+      </div>
+    </ModalOverlay>
+  );
+}
+
 function ChartCard({ title, subtitle, children, wide = false, action = null }) {
   return (
     <section className={"bg-slate-900 border border-slate-800 rounded-lg p-4 " + (wide ? "md:col-span-2" : "")}>
@@ -433,20 +468,69 @@ const initializeUserProfile = async (user, officialName = "", workCenters = ["04
   }
 };
 
-const updateTaskInDb = async (taskObj, targetUid) => {
-  if (window.db && window.dbOperations) {
-    const { doc, setDoc } = window.dbOperations;
-    const uid = targetUid || (window.auth?.currentUser?.uid);
-    if (!uid) return;
-    try { 
-      if (uid.startsWith("WC-")) {
-        await setDoc(doc(window.db, "workcenters", uid.replace("WC-",""), "poolTasks", String(taskObj.id)), taskObj);
-      } else {
-        await setDoc(doc(window.db, "users", uid, "tasks", String(taskObj.id)), taskObj); 
-      }
-    } catch(e) {
-      console.error("Database update error:", e);
+// Resolves the Firestore doc reference for a task from its assignedTo (uid or "WC-<code>"), without touching other fields.
+const taskDocRef = (assignedTo, taskId) => {
+  if (!window.db || !window.dbOperations || !assignedTo) return null;
+  const { doc } = window.dbOperations;
+  if (assignedTo.startsWith("WC-")) {
+    return doc(window.db, "workcenters", assignedTo.replace("WC-", ""), "poolTasks", String(taskId));
+  }
+  return doc(window.db, "users", assignedTo, "tasks", String(taskId));
+};
+
+// Partial field update — safe against concurrent edits to unrelated fields (e.g. another user's running timer).
+const updateTaskFieldsInDb = async (assignedTo, taskId, fields) => {
+  const ref = taskDocRef(assignedTo, taskId);
+  if (!ref) return;
+  try {
+    await window.dbOperations.updateDoc(ref, fields);
+  } catch (e) {
+    console.error("Task field update error:", e);
+  }
+};
+
+// Clock in/out writes only the toggling user's own contributors/runningWorkers keys via dot-path field
+// updates, so two sailors timing the same task concurrently can never clobber each other's session.
+const toggleTimerInDb = async (assignedTo, taskId, uid, starting, isoTime, elapsedMs) => {
+  const ref = taskDocRef(assignedTo, taskId);
+  if (!ref) return;
+  const { updateDoc, deleteField, increment } = window.dbOperations;
+  try {
+    if (starting) {
+      await updateDoc(ref, { [`runningWorkers.${uid}`]: isoTime });
+    } else {
+      await updateDoc(ref, {
+        [`runningWorkers.${uid}`]: deleteField(),
+        [`contributors.${uid}`]: increment(elapsedMs)
+      });
     }
+  } catch (e) {
+    console.error("Timer sync error:", e);
+  }
+};
+
+// Completing a task folds every currently-running worker's session into contributors. Runs as a
+// transaction against the server's live document so it can't discard a session someone just clocked into.
+const finishTaskInDb = async (assignedTo, taskId, completedTime) => {
+  const ref = taskDocRef(assignedTo, taskId);
+  if (!ref || !window.dbOperations) return;
+  const { runTransaction } = window.dbOperations;
+  try {
+    await runTransaction(window.db, async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists()) return;
+      const data = snap.data();
+      const runningWorkers = data.runningWorkers || {};
+      const contributors = { ...(data.contributors || {}) };
+      const now = Date.now();
+      Object.keys(runningWorkers).forEach(u => {
+        const startMs = new Date(runningWorkers[u]).getTime();
+        contributors[u] = (contributors[u] || 0) + Math.max(0, now - startMs);
+      });
+      tx.update(ref, { runningWorkers: {}, contributors, done: true, completedAt: completedTime });
+    });
+  } catch (e) {
+    console.error("Error finishing task:", e);
   }
 };
 
@@ -967,32 +1051,25 @@ function CommandWeeklyTaskTracker() {
     setTasks(prev => {
        const updated = prev.map(t => {
           if (t.id !== id) return t;
-          
+
           const runningWorkers = { ...(t.runningWorkers || {}) };
           const contributors = { ...(t.contributors || {}) };
+          const nowIso = new Date().toISOString();
           const now = Date.now();
+          const assignedTo = t.assignedTo || currentUid;
 
           if (runningWorkers[currentUid]) {
             const startMs = new Date(runningWorkers[currentUid]).getTime();
             const elapsed = Math.max(0, now - startMs);
             contributors[currentUid] = (contributors[currentUid] || 0) + elapsed;
             delete runningWorkers[currentUid];
+            toggleTimerInDb(assignedTo, t.id, currentUid, false, nowIso, elapsed);
           } else {
-            runningWorkers[currentUid] = new Date().toISOString();
+            runningWorkers[currentUid] = nowIso;
+            toggleTimerInDb(assignedTo, t.id, currentUid, true, nowIso, 0);
           }
 
-          const newT = { ...t, contributors, runningWorkers };
-          
-          if (t.isPool) {
-            const wcCode = t.assignedTo ? t.assignedTo.replace("WC-", "") : (userWorkCenters[0] || "040");
-            if (window.db && window.dbOperations) {
-              const { doc, setDoc } = window.dbOperations;
-              setDoc(doc(window.db, "workcenters", wcCode, "poolTasks", String(newT.id)), newT).catch(e=>console.error(e));
-            }
-          } else {
-            updateTaskInDb(newT, t.assignedTo || currentUid);
-          }
-          return newT;
+          return { ...t, contributors, runningWorkers };
        });
        lsSet(TASKS_KEY, updated);
        return updated;
@@ -1045,15 +1122,7 @@ function CommandWeeklyTaskTracker() {
                 });
 
                 const newT = { ...t, runningWorkers: {}, contributors, done: true, completedAt: completedTime };
-                if (t.isPool) {
-                  const wcCode = t.assignedTo.replace("WC-", "");
-                  if (window.db && window.dbOperations) {
-                    const { doc, setDoc } = window.dbOperations;
-                    setDoc(doc(window.db, "workcenters", wcCode, "poolTasks", String(id)), newT).catch(e=>console.error(e));
-                  }
-                } else {
-                  updateTaskInDb(newT, t.assignedTo || currentUid);
-                }
+                finishTaskInDb(t.assignedTo || currentUid, t.id, completedTime);
                 return newT;
             });
             lsSet(TASKS_KEY, updated);
@@ -1077,7 +1146,7 @@ function CommandWeeklyTaskTracker() {
         const updated = prev.map(t => {
             if (t.id !== id) return t;
             const newT = { ...t, done: false, completedAt: null };
-            updateTaskInDb(newT, t.assignedTo || currentUid);
+            updateTaskFieldsInDb(t.assignedTo || currentUid, t.id, { done: false, completedAt: null });
             return newT;
         });
         lsSet(TASKS_KEY, updated);
@@ -1093,8 +1162,9 @@ function CommandWeeklyTaskTracker() {
             if (t.id !== id) return t;
             const base = t.due ? parseDue(t.due) : new Date();
             base.setDate(base.getDate() + 7);
-            const newT = { ...t, due: fmtDue(base) };
-            updateTaskInDb(newT, t.assignedTo || currentUid);
+            const newDueVal = fmtDue(base);
+            const newT = { ...t, due: newDueVal };
+            updateTaskFieldsInDb(t.assignedTo || currentUid, t.id, { due: newDueVal });
             return newT;
         });
         lsSet(TASKS_KEY, updated);
@@ -1109,22 +1179,33 @@ function CommandWeeklyTaskTracker() {
     const oldAssignedTo = tasks.find(t => t.id === editingTask.id)?.assignedTo || currentUid;
 
     const isPoolTask = newAssignedTo.startsWith("WC-");
-    const updatedTask = { ...editingTask, text: editingTask.text.trim(), assignedTo: newAssignedTo, isPool: isPoolTask };
-    
+    const editedFields = {
+      text: editingTask.text.trim(),
+      label: editingTask.label,
+      priority: editingTask.priority,
+      due: editingTask.due,
+      assignedTo: newAssignedTo,
+      isPool: isPoolTask
+    };
+    const updatedTask = { ...editingTask, ...editedFields };
+
     if (window.db && window.dbOperations) {
-      const { doc, deleteDoc, setDoc } = window.dbOperations;
+      const { runTransaction, updateDoc } = window.dbOperations;
       try {
         if (oldAssignedTo !== newAssignedTo) {
-          if (oldAssignedTo.startsWith("WC-")) {
-            await deleteDoc(doc(window.db, "workcenters", oldAssignedTo.replace("WC-",""), "poolTasks", String(editingTask.id)));
-          } else {
-            await deleteDoc(doc(window.db, "users", oldAssignedTo, "tasks", String(editingTask.id)));
-          }
-        }
-        if (isPoolTask) {
-          await setDoc(doc(window.db, "workcenters", newAssignedTo.replace("WC-",""), "poolTasks", String(updatedTask.id)), updatedTask);
+          // Reassignment moves the doc between collections — do it as a transaction against the
+          // live server doc so the sailor's own contributors/runningWorkers timer state survives the move.
+          const oldRef = taskDocRef(oldAssignedTo, editingTask.id);
+          const newRef = taskDocRef(newAssignedTo, editingTask.id);
+          await runTransaction(window.db, async (tx) => {
+            const snap = await tx.get(oldRef);
+            const serverData = snap.exists() ? snap.data() : editingTask;
+            tx.set(newRef, { ...serverData, ...editedFields, id: editingTask.id });
+            tx.delete(oldRef);
+          });
         } else {
-          await setDoc(doc(window.db, "users", newAssignedTo, "tasks", String(updatedTask.id)), updatedTask);
+          const ref = taskDocRef(newAssignedTo, editingTask.id);
+          await updateDoc(ref, editedFields);
         }
       } catch (e) {
         setErrorAlert("Permission Denied: Firebase rules block reassigning tasks.");
@@ -1224,8 +1305,9 @@ function CommandWeeklyTaskTracker() {
     setTasks(prev => {
        const updated = prev.map(t => {
            if (t.id !== id) return t;
-           const newT = { ...t, note: trimmed ? { text, updatedAt: new Date().toISOString(), updatedBy: userName } : null };
-           updateTaskInDb(newT, t.assignedTo || currentUid);
+           const noteVal = trimmed ? { text, updatedAt: new Date().toISOString(), updatedBy: userName } : null;
+           const newT = { ...t, note: noteVal };
+           updateTaskFieldsInDb(t.assignedTo || currentUid, t.id, { note: noteVal });
            return newT;
        });
        lsSet(TASKS_KEY, updated);
