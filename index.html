@@ -1141,6 +1141,16 @@ function CommandWeeklyTaskTracker() {
     }
   }, []);
 
+  // Safeguard: Automatically reset selectedSailorUid if inspected sailor was deleted from Firestore
+  useEffect(() => {
+    if (shopSailors.length > 0 && selectedSailorUid && !selectedSailorUid.startsWith("WCSEL-")) {
+      const exists = shopSailors.some(s => (s.uid || s.id) === selectedSailorUid);
+      if (!exists) {
+        setSelectedSailorUid(shopSailors[0].uid || shopSailors[0].id);
+      }
+    }
+  }, [shopSailors, selectedSailorUid]);
+
   const hasRunningTimers = useMemo(
     () => tasks.some(t => t.runningWorkers && Object.keys(t.runningWorkers).length > 0),
     [tasks]
