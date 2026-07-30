@@ -1141,6 +1141,27 @@ function CommandWeeklyTaskTracker() {
     }
   }, []);
 
+  // Auto-sync work center codes from shopSailors so assigned WCs never disappear
+  useEffect(() => {
+    if (shopSailors.length > 0) {
+      setWorkCenters(prev => {
+        const set = new Set(prev);
+        set.add("040");
+        shopSailors.forEach(s => {
+          const wcs = s.workCenters || (s.workCenter ? [s.workCenter] : []);
+          if (Array.isArray(wcs)) {
+            wcs.forEach(w => { if (w) set.add(String(w).trim().toUpperCase()); });
+          } else if (wcs) {
+            set.add(String(wcs).trim().toUpperCase());
+          }
+        });
+        const next = Array.from(set);
+        lsSet(WORK_CENTERS_KEY, next);
+        return next;
+      });
+    }
+  }, [shopSailors]);
+
   // Safeguard: Automatically reset selectedSailorUid if inspected sailor was deleted from Firestore
   useEffect(() => {
     if (shopSailors.length > 0 && selectedSailorUid && !selectedSailorUid.startsWith("WCSEL-")) {
@@ -2827,117 +2848,4 @@ function CommandWeeklyTaskTracker() {
                       <p className="text-xs text-slate-600 font-mono py-6 text-center">Clock time on a task with ▶ CLOCK IN, then ✓ FINISH it.</p>
                     )}
                     {analytics.slowest && (
-                      <p className="font-mono text-[10px] tracking-widest text-slate-500 mt-2">HEAVIEST CATEGORY: <span style={{ color: ACCENT.amber }}>#{analytics.slowest.label}</span> AT {analytics.slowest.avgMin} MIN AVG</p>
-                    )}
-                  </ChartCard>
-
-                  <ChartCard wide title={"DAILY THROUGHPUT — LAST " + chartRange + " DAYS"} subtitle="Bars: tasks completed per day. Line: 7-day rolling average." action={<div className="flex gap-1">{[14, 30].map((r) => (<button key={r} onClick={() => setChartRange(r)} className="font-mono text-[10px] font-bold tracking-widest px-2.5 py-1 rounded" style={chartRange === r ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b", border: "1px solid #334155" }}>{r}D</button>))}</div>}>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <ComposedChart data={analytics.byDay30.slice(-chartRange)} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis dataKey="label" tick={axisTick} interval={chartRange === 30 ? 3 : 1} />
-                        <YAxis allowDecimals={false} tick={axisTick} />
-                        <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
-                        <Bar dataKey="count" name="Completed" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
-                        <Line type="monotone" dataKey="avg7" name="7-day avg" stroke={ACCENT.amber} strokeWidth={2} dot={false} />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </ChartCard>
-
-                  <ChartCard wide title="LEAD TIME PER TASK — LAST 12 DATED COMPLETIONS" subtitle="Days ahead of (teal) or behind (rose) the deadline.">
-                    {analytics.leadPerTask.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={Math.max(160, analytics.leadPerTask.length * 28 + 40)}>
-                        <BarChart data={analytics.leadPerTask} layout="vertical" margin={{ top: 4, right: 36, left: 8, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-                          <XAxis type="number" tick={axisTick} />
-                          <YAxis type="category" dataKey="name" width={150} tick={axisTickLight} />
-                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v) => [v >= 0 ? v + "d early" : Math.abs(v) + "d late", "Lead"]} labelFormatter={(label, payload) => (payload && payload[0] && payload[0].payload.fullName) || label} />
-                          <ReferenceLine x={0} stroke="#475569" strokeWidth={1.5} />
-                          <Bar dataKey="lead" radius={[0, 3, 3, 0]}>
-                            {analytics.leadPerTask.map((d, i) => <Cell key={i} fill={d.fill} />)}
-                            <LabelList dataKey="lead" position="right" formatter={(v) => (v > 0 ? "+" : "") + v + "d"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <p className="text-xs text-slate-600 font-mono py-6 text-center">Complete a task that has a due date to populate this chart.</p>
-                    )}
-                  </ChartCard>
-
-                  <ChartCard title="RELIABILITY BY PRIORITY" subtitle="On-time (teal) vs late (rose) per tier.">
-                    <ResponsiveContainer width="100%" height={190}>
-                      <BarChart data={analytics.priorityReliability} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis dataKey="label" tick={axisTick} />
-                        <YAxis allowDecimals={false} tick={axisTick} />
-                        <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
-                        <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
-                        <Bar dataKey="onTime" name="On time" stackId="r" fill={ACCENT.teal} />
-                        <Bar dataKey="late" name="Late" stackId="r" fill={ACCENT.rose} radius={[3, 3, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </ChartCard>
-
-                  <ChartCard title="COMPLETIONS BY DAY OF WEEK" subtitle="Busiest day highlighted amber.">
-                    <ResponsiveContainer width="100%" height={190}>
-                      <BarChart data={analytics.byWeekday} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis dataKey="label" tick={axisTick} />
-                        <YAxis allowDecimals={false} tick={axisTick} />
-                        <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
-                        <Bar dataKey="count" name="Completed" radius={[3, 3, 0, 0]}>
-                          {analytics.byWeekday.map((d, i) => (
-                            <Cell key={i} fill={d.label === analytics.busiestDay.label && d.count > 0 ? ACCENT.amber : ACCENT.teal} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </ChartCard>
-
-                  <ChartCard wide title="COMPLETIONS BY TIME OF DAY" subtitle="3-hour blocks. Peak block highlighted amber.">
-                    <ResponsiveContainer width="100%" height={170}>
-                      <BarChart data={analytics.byHourBlock} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis dataKey="label" tick={axisTick} />
-                        <YAxis allowDecimals={false} tick={axisTick} />
-                        <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
-                        <Bar dataKey="count" name="Completed" radius={[3, 3, 0, 0]}>
-                          {analytics.byHourBlock.map((d, i) => (
-                            <Cell key={i} fill={d.label === analytics.peakBlock.label && d.count > 0 ? ACCENT.amber : ACCENT.teal} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </ChartCard>
-                </div>
-              </React.Fragment>
-            ) : (
-              <div className="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center mb-6">
-                <p className="font-mono text-sm text-slate-500 tracking-widest">
-                  NO COMPLETED TASKS YET. THE ANALYTICS ENGINE BUILDS AS YOU CHECK THINGS OFF.
-                </p>
-              </div>
-            )}
-          </React.Fragment>
-        )}
-      </div>
-
-      <footer className="mt-12 flex flex-col items-center justify-center gap-4 border-t border-slate-800 pt-6 pb-4">
-          <p className="font-mono text-xs text-slate-600 tracking-widest text-center">made by AZ2 Medrano, thank an AZ for showing up to work today :-)</p>
-          <div className="flex flex-wrap justify-center gap-4">
-              <button onClick={() => setManagingLabels(true)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-slate-500 hover:text-white transition-colors border border-slate-800 bg-slate-900">[ MANAGE LABELS ]</button>
-              <button onClick={() => setShowChangeNameModal(true)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-teal-400 hover:text-white transition-colors border border-slate-800 bg-slate-900">[ CHANGE NAME ]</button>
-              <button onClick={() => { window.localStorage.clear(); window.location.reload(); }} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-slate-500 hover:text-rose-500 transition-colors border border-slate-800 bg-slate-900">[ FACTORY RESET ]</button>
-              {!askingName && window.auth && (
-                  <button onClick={() => triggerAction('signout', null)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-rose-400 hover:text-white transition-colors border border-rose-900 bg-rose-950/40">[ SIGN OUT ]</button>
-              )}
-          </div>
-      </footer>
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(<CommandWeeklyTaskTracker />);
-</script>
-</body>
-</html>
+                      <p className="font-mono text-[10px] tracking-widest text-slate-500 mt-2">HEAVIEST CATEGORY: <span style={{ color: ACCENT.amber</i>
