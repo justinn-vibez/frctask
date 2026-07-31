@@ -109,6 +109,13 @@ const PRIORITIES = [
   { id: "asap", label: "DO A FUCKIN SAP", color: ACCENT.rose },
 ];
 
+const RECURRENCE_OPTIONS = [
+  { id: "none", label: "Does not repeat" },
+  { id: "weekly", label: "Weekly" },
+  { id: "biweekly", label: "Every 2 weeks" },
+  { id: "monthly", label: "Monthly" },
+];
+
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const axisTick = { fill: "#64748b", fontSize: 10, fontFamily: "monospace" };
@@ -120,6 +127,15 @@ function lsSet(key, value) { try { window.localStorage.setItem(key, JSON.stringi
 
 function parseDue(dueStr) { const [y, m, d] = dueStr.split("-").map(Number); return new Date(y, m - 1, d); }
 function fmtDue(date) { return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0"); }
+function computeNextDue(dueStr, recurrence) {
+  if (!recurrence || recurrence === "none") return null;
+  const d = dueStr ? parseDue(dueStr) : new Date();
+  if (recurrence === "weekly") d.setDate(d.getDate() + 7);
+  else if (recurrence === "biweekly") d.setDate(d.getDate() + 14);
+  else if (recurrence === "monthly") d.setMonth(d.getMonth() + 1);
+  else return null;
+  return fmtDue(d);
+}
 function daysUntil(dueStr) {
   if (!dueStr) return null;
   const due = parseDue(dueStr), now = new Date();
@@ -1056,6 +1072,7 @@ function CommandWeeklyTaskTracker() {
   const [newLabel, setNewLabel] = useState("");
   const [newPriority, setNewPriority] = useState("medium");
   const [newDue, setNewDue] = useState("");
+  const [newRecurrence, setNewRecurrence] = useState("none");
   const [errorAlert, setErrorAlert] = useState(null);
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
   const [newNote, setNewNote] = useState("");
@@ -1367,11 +1384,12 @@ function CommandWeeklyTaskTracker() {
         due: newDue, 
         done: false, 
         completedAt: null, 
-        note: newNote.trim() ? { text: newNote.trim(), updatedAt: new Date().toISOString(), updatedBy: userName } : null, 
+        note: newNote.trim() ? { text: newNote.trim(), updatedAt: new Date().toISOString(), updatedBy: userName } : null,
         contributors: {},
         runningWorkers: {},
         assignedTo: targetUid,
-        isPool: isPoolTask
+        isPool: isPoolTask,
+        recurrence: newRecurrence
     };
     
     if (window.db && window.dbOperations) {
@@ -1401,7 +1419,7 @@ function CommandWeeklyTaskTracker() {
       setTimeout(() => setErrorAlert(null), 4000);
     }
 
-    setNewText(""); setNewDue(""); setNewPriority("medium"); setNewNote(""); setAssignedWorkerUid(""); setAttemptedSubmit(false);
+    setNewText(""); setNewDue(""); setNewPriority("medium"); setNewNote(""); setNewRecurrence("none"); setAssignedWorkerUid(""); setAttemptedSubmit(false);
     setShowAddTaskModal(false);
   };
 
@@ -1488,8 +1506,38 @@ function CommandWeeklyTaskTracker() {
     else if (type === 'finish' || type === 'complete') {
         const completedTime = new Date().toISOString();
         const targetAssignedTo = targetTask ? (targetTask.assignedTo || currentUid) : currentUid;
-        
+        const inOwnTasks = tasks.some(t => t.id === id);
+        const inSailorTasks = sailorTasks.some(t => t.id === id);
+
         finishTaskInDb(targetAssignedTo, id, completedTime);
+
+        // Recurring tasks never sit duplicated in the active list — the next
+        // occurrence is only spawned once this instance is actually finished.
+        let nextTask = null;
+        if (targetTask && targetTask.recurrence && targetTask.recurrence !== "none") {
+          const nextDue = computeNextDue(targetTask.due, targetTask.recurrence);
+          if (nextDue) {
+            nextTask = {
+              id: "t-" + Date.now(),
+              text: targetTask.text,
+              label: targetTask.label || "",
+              priority: targetTask.priority,
+              due: nextDue,
+              done: false,
+              completedAt: null,
+              note: null,
+              contributors: {},
+              runningWorkers: {},
+              assignedTo: targetAssignedTo,
+              isPool: targetTask.isPool || false,
+              recurrence: targetTask.recurrence
+            };
+            if (window.db && window.dbOperations) {
+              const ref = taskDocRef(targetAssignedTo, nextTask.id);
+              if (ref) window.dbOperations.setDoc(ref, nextTask).catch(e => console.error("Error spawning recurring task:", e));
+            }
+          }
+        }
 
         setTasks(prev => {
             const updated = prev.map((t) => {
@@ -1503,11 +1551,15 @@ function CommandWeeklyTaskTracker() {
                 });
                 return { ...t, runningWorkers: {}, contributors, done: true, completedAt: completedTime };
             });
-            lsSet(TASKS_KEY, updated);
-            return updated;
+            const withNext = (nextTask && inOwnTasks) ? [...updated, nextTask] : updated;
+            lsSet(TASKS_KEY, withNext);
+            return withNext;
         });
 
-        setSailorTasks(prev => prev.map(t => t.id === id ? { ...t, done: true, completedAt: completedTime } : t));
+        setSailorTasks(prev => {
+            const updated = prev.map(t => t.id === id ? { ...t, done: true, completedAt: completedTime } : t);
+            return (nextTask && inSailorTasks) ? [...updated, nextTask] : updated;
+        });
     }
     else if (type === 'signout') {
       if (window.auth) window.auth.signOut();
@@ -1562,7 +1614,8 @@ function CommandWeeklyTaskTracker() {
       priority: editingTask.priority,
       due: editingTask.due,
       assignedTo: newAssignedTo,
-      isPool: isPoolTask
+      isPool: isPoolTask,
+      recurrence: editingTask.recurrence || "none"
     };
     const updatedTask = { ...editingTask, ...editedFields };
 
@@ -2080,6 +2133,15 @@ function CommandWeeklyTaskTracker() {
                   <label className="block font-mono text-[10px] text-slate-400 mb-1">DUE DATE *</label>
                   <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className={"w-full h-10 bg-slate-800 border rounded px-3 text-sm text-white focus:outline-none " + (attemptedSubmit && !newDue ? "border-rose-500" : "border-slate-700")} />
                 </div>
+                <div>
+                  <label className="block font-mono text-[10px] text-slate-400 mb-1">REPEATS</label>
+                  <select value={newRecurrence} onChange={(e) => setNewRecurrence(e.target.value)} className="w-full h-10 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none">
+                    {RECURRENCE_OPTIONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {canAssignTasks && (
                   <div>
                     <label className="block font-mono text-[10px] text-slate-400 mb-1">ASSIGNED WORKER / POOL</label>
@@ -2128,7 +2190,13 @@ function CommandWeeklyTaskTracker() {
     if (confirmAction) {
       let title = "Confirm Action", msg = "Are you sure?", btn = "YES", color = ACCENT.rose;
       if (confirmAction.type === 'delete') { title = "Delete Task"; msg = "This task will be permanently removed."; }
-      if (confirmAction.type === 'complete' || confirmAction.type === 'finish') { title = "Complete Task"; msg = "Mark this task as finished and freeze the timer?"; btn = "COMPLETE"; color = ACCENT.blue; }
+      if (confirmAction.type === 'complete' || confirmAction.type === 'finish') {
+        const t = tasks.find(x => x.id === confirmAction.id) || sailorTasks.find(x => x.id === confirmAction.id);
+        const isRecurring = t && t.recurrence && t.recurrence !== "none";
+        title = "Complete Task";
+        msg = isRecurring ? `Mark this task as finished and freeze the timer? A new ${RECURRENCE_OPTIONS.find(r => r.id === t.recurrence)?.label.toLowerCase() || "recurring"} occurrence will be created automatically.` : "Mark this task as finished and freeze the timer?";
+        btn = "COMPLETE"; color = ACCENT.blue;
+      }
       if (confirmAction.type === 'signout') { title = "Sign Out"; msg = "Are you sure you want to sign out?"; btn = "SIGN OUT"; color = ACCENT.rose; }
       if (confirmAction.type === 'reset') { title = "NUCLEAR RESET"; msg = "Are you absolutely sure? This will wipe all tasks, history, custom labels, and analytics permanently."; btn = "NUKE IT"; }
       return <ConfirmModal title={title} message={msg} onConfirm={executeConfirmAction} onCancel={() => setConfirmAction(null)} confirmText={btn} confirmColor={color} />;
@@ -2222,6 +2290,12 @@ function CommandWeeklyTaskTracker() {
                   {PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
                 </select>
                 <input type="date" value={editingTask.due || ""} onChange={(e) => setEditingTask({...editingTask, due: e.target.value})} className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none" />
+              </div>
+              <div>
+                <label className="block font-mono text-[10px] text-slate-400 mb-1">REPEATS</label>
+                <select value={editingTask.recurrence || "none"} onChange={(e) => setEditingTask({...editingTask, recurrence: e.target.value})} className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none">
+                  {RECURRENCE_OPTIONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+                </select>
               </div>
               <div>
                 <label className="block font-mono text-[10px] text-slate-400 mb-1">ASSIGNED WORKER / POOL</label>
@@ -2348,6 +2422,7 @@ function CommandWeeklyTaskTracker() {
                         {t.label && <span className="font-mono text-sm tracking-widest px-3 py-1 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
                         <span className="font-mono text-sm tracking-widest px-3 py-1 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a" }}>{pm.label}</span>
                         {t.due && <span className="font-mono text-xs tracking-widest px-2 py-1 rounded border border-slate-700 text-slate-400">{dueLabelTxt(t.due)}</span>}
+                        {t.recurrence && t.recurrence !== "none" && <span title="Recurring task" className="font-mono text-xs tracking-widest px-2 py-1 rounded" style={{ color: ACCENT.gold, backgroundColor: ACCENT.gold + "14", border: "1px solid " + ACCENT.gold + "44" }}>🔁 {t.recurrence.toUpperCase()}</span>}
                         {t.assignedTo && <span className="font-mono text-xs tracking-widest px-2 py-1 rounded bg-blue-950 text-blue-300 border border-blue-800">{getWorkerName(t.assignedTo)}</span>}
                     </div>
                 </div>
@@ -2630,6 +2705,7 @@ function CommandWeeklyTaskTracker() {
                                     {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
                                     <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
                                     {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
+                                    {t.recurrence && t.recurrence !== "none" && <span title="Recurring task" className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: ACCENT.gold, backgroundColor: ACCENT.gold + "14", border: "1px solid " + ACCENT.gold + "44" }}>🔁 {t.recurrence.toUpperCase()}</span>}
                                     <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">{getWorkerName(t.assignedTo)}</span>
                                   </div>
                                   <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-900/70 border border-white/10 rounded-lg px-2.5 py-1.5 w-fit">
@@ -2874,6 +2950,7 @@ function CommandWeeklyTaskTracker() {
                             {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
                             <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
                             {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
+                                    {t.recurrence && t.recurrence !== "none" && <span title="Recurring task" className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: ACCENT.gold, backgroundColor: ACCENT.gold + "14", border: "1px solid " + ACCENT.gold + "44" }}>🔁 {t.recurrence.toUpperCase()}</span>}
                             {t.assignedTo && (
                               <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">{getWorkerName(t.assignedTo)}</span>
                             )}
@@ -2927,6 +3004,7 @@ function CommandWeeklyTaskTracker() {
                           {t.label && <span className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
                           <span className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
                           {t.due && <span className="font-mono text-[9px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
+                          {t.recurrence && t.recurrence !== "none" && <span title="Recurring task" className="font-mono text-[9px] tracking-widest px-2 py-0.5 rounded" style={{ color: ACCENT.gold, backgroundColor: ACCENT.gold + "14", border: "1px solid " + ACCENT.gold + "44" }}>🔁 {t.recurrence.toUpperCase()}</span>}
                         </div>
                       </div>
                       <div>
