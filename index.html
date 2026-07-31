@@ -63,7 +63,7 @@
 <div id="root"></div>
 
 <script type="text/babel" data-presets="env,react">
-const { useState, useEffect, useRef, useCallback, useMemo } = React;
+const { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } = React;
 const {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Cell, Legend, ComposedChart, Line, ReferenceLine, LabelList, PieChart, Pie
@@ -73,6 +73,7 @@ const TASKS_KEY = "weekly_tracker_tasks_b33";
 const LABELS_KEY = "weekly_tracker_labels_b33";
 const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b33";
 const USER_NAME_KEY = "weekly_tracker_username_b33";
+const DAILY_BRIEF_KEY = "weekly_tracker_dailybrief_seen_b33";
 
 const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
@@ -1038,6 +1039,11 @@ function CommandWeeklyTaskTracker() {
   const [sortMode, setSortMode] = useState("default");
   const [viewMode, setViewMode] = useState("list");
 
+  const [showDailyBrief, setShowDailyBrief] = useState(false);
+
+  const navButtonRefs = useRef({});
+  const [navPillStyle, setNavPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
+
   useEffect(() => {
     let unsubscribeAuth = null;
     let unsubscribeTasks = null;
@@ -1296,6 +1302,20 @@ function CommandWeeklyTaskTracker() {
     }
     prevPct.current = pct;
   }, [pct, loaded, weekTotal]);
+
+  // Daily Brief: auto-surface once per user per calendar day, after any onboarding modals are clear.
+  useEffect(() => {
+    if (!loaded || !currentUid || !userName || askingName || askingOfficialName || showTour) return;
+    const seenKey = DAILY_BRIEF_KEY + "_" + currentUid;
+    if (lsGet(seenKey) !== dayKey(new Date())) {
+      setShowDailyBrief(true);
+    }
+  }, [loaded, currentUid, userName, askingName, askingOfficialName, showTour]);
+
+  const dismissDailyBrief = () => {
+    lsSet(DAILY_BRIEF_KEY + "_" + currentUid, dayKey(new Date()));
+    setShowDailyBrief(false);
+  };
 
   const isRestrictedSailor = userRole === "sailor";
 
@@ -1593,6 +1613,30 @@ function CommandWeeklyTaskTracker() {
   });
 
   const historyTasks = tasks.filter((t) => t.done).sort((a, b) => ((b.completedAt || "") < (a.completedAt || "") ? -1 : 1));
+
+  const navTabs = [
+    ...((userRole === "supervisor" || userRole === "admin") ? [{ key: "oversight", label: "ADMIN PANEL" }] : []),
+    { key: "home", label: "HOME" },
+    { key: "tasks", label: `TASKS (${activeTasks.length})` },
+    { key: "history", label: `HISTORY (${historyTasks.length})` },
+    { key: "analytics", label: "ANALYTICS" },
+  ];
+
+  // Liquid-glass sliding pill: measure the active tab's box each time it (or the tab set) changes,
+  // then let a single transform-based layer glide there — cheap enough for constrained NMCI browsers.
+  useLayoutEffect(() => {
+    const btn = navButtonRefs.current[tab];
+    if (btn) setNavPillStyle({ left: btn.offsetLeft, width: btn.offsetWidth, opacity: 1 });
+  }, [tab, navTabs.map((t) => t.key).join("|")]);
+
+  useEffect(() => {
+    const onResize = () => {
+      const btn = navButtonRefs.current[tab];
+      if (btn) setNavPillStyle({ left: btn.offsetLeft, width: btn.offsetWidth, opacity: 1 });
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [tab]);
 
   const saveLabelEdits = (oldName, newName, newColor) => {
       const trimmed = newName.trim();
@@ -2184,6 +2228,66 @@ function CommandWeeklyTaskTracker() {
         </ModalOverlay>
       );
     }
+
+    if (showDailyBrief) {
+      const briefTasks = tasks.filter((t) => !t.done && isDueTodayOrOverdue(t)).sort((a, b) => (a.due || "").localeCompare(b.due || ""));
+      return (
+        <ModalOverlay zIndex="z-[90]">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg shadow-2xl overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-800" style={{ background: "linear-gradient(135deg, rgba(34,224,201,0.14), transparent)" }}>
+              <p className="font-mono text-[10px] tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// DAILY BRIEF</p>
+              <h2 className="text-2xl font-bold text-white tracking-tight">{getGreeting()}, {userName}.</h2>
+              <p className="text-sm text-slate-400 mt-1">Here's your sitrep before you get underway.</p>
+            </div>
+
+            <div className="p-6 space-y-5 max-h-[60vh] overflow-y-auto">
+              <div>
+                <h3 className="font-mono text-xs tracking-widest text-slate-400 mb-2">DUE TODAY & OVERDUE ({briefTasks.length})</h3>
+                {briefTasks.length === 0 ? (
+                  <p className="text-sm text-slate-500 bg-slate-950/60 border border-slate-800 rounded-lg px-4 py-3">Nothing due today or overdue. Clear skies. ✓</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {briefTasks.slice(0, 6).map((t) => (
+                      <li key={t.id} className="flex items-center justify-between gap-3 bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-2">
+                        <span className="text-sm text-slate-200 truncate">{t.text}</span>
+                        <span className="font-mono text-[10px] shrink-0" style={{ color: daysUntil(t.due) < 0 ? ACCENT.rose : ACCENT.amber }}>
+                          {daysUntil(t.due) < 0 ? "OVERDUE" : "DUE TODAY"}
+                        </span>
+                      </li>
+                    ))}
+                    {briefTasks.length > 6 && <li className="text-xs text-slate-500 font-mono">+ {briefTasks.length - 6} more…</li>}
+                  </ul>
+                )}
+              </div>
+
+              <div>
+                <h3 className="font-mono text-xs tracking-widest text-slate-400 mb-2">WEEK SO FAR</h3>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-3 text-center">
+                    <p className="text-xl font-bold text-white">{pct}%</p>
+                    <p className="font-mono text-[9px] tracking-widest text-slate-500 mt-1">COMPLETION</p>
+                  </div>
+                  <div className="bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-3 text-center">
+                    <p className="text-xl font-bold text-white">{weekCompleted}</p>
+                    <p className="font-mono text-[9px] tracking-widest text-slate-500 mt-1">DONE THIS WEEK</p>
+                  </div>
+                  <div className="bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-3 text-center">
+                    <p className="text-xl font-bold" style={{ color: ACCENT.amber }}>{analytics.currentStreak}d</p>
+                    <p className="font-mono text-[9px] tracking-widest text-slate-500 mt-1">ACTIVE STREAK</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-800">
+              <button onClick={dismissDailyBrief} className="w-full font-mono text-sm font-bold tracking-widest px-4 py-3 rounded text-slate-950 transition-transform active:scale-95 hover:brightness-110" style={{ backgroundColor: ACCENT.teal }}>
+                LET'S GET TO WORK
+              </button>
+            </div>
+          </div>
+        </ModalOverlay>
+      );
+    }
     return null;
   };
 
@@ -2342,14 +2446,28 @@ function CommandWeeklyTaskTracker() {
           </div>
         </header>
 
-        <nav className="flex gap-1 mb-6 bg-slate-900 border border-slate-800 rounded-lg p-1">
-          {canAssignTasks && (
-            <button onClick={() => setTab("oversight")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "oversight" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ADMIN PANEL</button>
-          )}
-          <button onClick={() => setTab("home")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "home" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>HOME</button>
-          <button onClick={() => setTab("tasks")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "tasks" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>TASKS ({activeTasks.length})</button>
-          <button onClick={() => setTab("history")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "history" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>HISTORY ({historyTasks.length})</button>
-          <button onClick={() => setTab("analytics")} className="flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors" style={tab === "analytics" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>ANALYTICS</button>
+        <nav className="relative flex gap-1 mb-6 bg-slate-900 border border-slate-800 rounded-lg p-1">
+          <div
+            className="absolute top-1 bottom-1 rounded-md pointer-events-none transition-[transform,width] duration-300 ease-out will-change-transform"
+            style={{
+              transform: `translateX(${navPillStyle.left}px)`,
+              width: navPillStyle.width,
+              opacity: navPillStyle.opacity,
+              backgroundColor: ACCENT.teal,
+              boxShadow: "0 2px 14px rgba(34,224,201,0.35)",
+            }}
+          />
+          {navTabs.map((t) => (
+            <button
+              key={t.key}
+              ref={(el) => { navButtonRefs.current[t.key] = el; }}
+              onClick={() => setTab(t.key)}
+              className="relative z-10 flex-1 font-mono text-[11px] sm:text-xs font-bold tracking-widest py-2.5 rounded transition-colors duration-300"
+              style={{ color: tab === t.key ? "#04241f" : "#64748b" }}
+            >
+              {t.label}
+            </button>
+          ))}
         </nav>
 
         {tab === "oversight" && canAssignTasks && (
