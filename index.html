@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Command Weekly Task Tracker</title>
 
+  <!-- FRC Southeast "Red Tails" Detachment Mayport crest -->
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png" />
+
   <!-- Tailwind and Core Libraries -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -69,7 +74,7 @@
        Cheap: only changes the timing-function, never triggers layout/paint on its own. */
     [class*="transition-"] { transition-timing-function: cubic-bezier(0.25, 1, 0.5, 1) !important; }
     @keyframes cwtt-fall { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(105vh) rotate(720deg); opacity: 0.7; } }
-    @keyframes cwtt-ring-glow { 0%, 100% { filter: drop-shadow(0 0 8px #22e0c988); } 50% { filter: drop-shadow(0 0 22px #22e0c9); } }
+    @keyframes cwtt-ring-glow { 0%, 100% { filter: drop-shadow(0 0 8px #F2C14E88); } 50% { filter: drop-shadow(0 0 22px #F2C14E); } }
     @keyframes cwtt-timer-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
     @keyframes cwtt-fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     .hide-scrollbar::-webkit-scrollbar { display: none; }
@@ -94,13 +99,13 @@ const WORK_CENTERS_KEY = "weekly_tracker_workcenters_b33";
 const USER_NAME_KEY = "weekly_tracker_username_b33";
 const DAILY_BRIEF_KEY = "weekly_tracker_dailybrief_seen_b33";
 
-const ACCENT = { teal: "#22e0c9", amber: "#ffb020", rose: "#ff4d6d" };
+const ACCENT = { blue: "#2F5FE0", gold: "#F2C14E", rose: "#ff4d6d" };
 const LABEL_PALETTE = ["#3b82f6", "#8b5cf6", "#d946ef", "#f43f5e", "#f97316", "#eab308", "#10b981", "#64748b"];
 
 const PRIORITIES = [
   { id: "low", label: "LOW", color: "#475569" },
   { id: "medium", label: "MEDIUM", color: "#a855f7" },
-  { id: "high", label: "HIGH", color: ACCENT.amber },
+  { id: "high", label: "HIGH", color: ACCENT.gold },
   { id: "asap", label: "DO A FUCKIN SAP", color: ACCENT.rose },
 ];
 
@@ -123,8 +128,8 @@ function daysUntil(dueStr) {
 function dueColor(dueStr) {
   const days = daysUntil(dueStr);
   if (days === null) return "#64748b";
-  if (days >= 5) return ACCENT.teal;
-  if (days >= 3) return ACCENT.amber;
+  if (days >= 5) return ACCENT.blue;
+  if (days >= 3) return ACCENT.gold;
   return ACCENT.rose;
 }
 function dueLabelTxt(dueStr) {
@@ -243,8 +248,8 @@ function SystemClock() {
     return () => clearInterval(t);
   }, []);
   return (
-    <div className="absolute top-4 right-4 sm:right-8 bg-slate-900/70 border border-white/10 rounded-full px-3 py-1 font-mono text-xs text-teal-400 tracking-widest shadow-lg flex items-center gap-2">
-      <span className="text-teal-400 font-bold">🕒</span>
+    <div className="absolute top-4 right-4 sm:right-8 bg-slate-900/70 border border-white/10 rounded-full px-3 py-1 font-mono text-xs text-[#F2C14E] tracking-widest shadow-lg flex items-center gap-2">
+      <span className="text-[#F2C14E] font-bold">🕒</span>
       {String(time.getHours()).padStart(2, "0")}
       <span style={{ opacity: blink ? 1 : 0.2 }}>:</span>
       {String(time.getMinutes()).padStart(2, "0")}
@@ -273,7 +278,7 @@ function ConfirmModal({ title, message, onConfirm, onCancel, confirmText = "YES"
 }
 function Confetti() {
   const pieces = useMemo(() => Array.from({ length: 30 }, (_, i) => {
-    const colors = [ACCENT.teal, ACCENT.amber, ACCENT.rose, "#ffffff"];
+    const colors = [ACCENT.blue, ACCENT.gold, ACCENT.rose, "#ffffff"];
     return { id: i, left: Math.random() * 100, delay: Math.random() * 0.4, duration: 1.8 + Math.random() * 1.2, size: 5 + Math.random() * 5, color: colors[i % colors.length], rotate: Math.random() * 360 };
   }), []);
   return (
@@ -288,9 +293,9 @@ function ProgressRing({ pct, completed, total, size = 170, stroke = 13 }) {
   const r = (size - stroke) / 2, circ = 2 * Math.PI * r, offset = circ - (pct / 100) * circ, full = pct === 100 && total > 0;
   return (
     <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="cwtt-anim" style={{ transform: "rotate(-90deg)", filter: full ? "drop-shadow(0 0 10px " + ACCENT.teal + ")" : "none", animation: full ? "cwtt-ring-glow 1.6s ease-in-out infinite" : "none", borderRadius: "50%" }}>
+      <svg width={size} height={size} className="cwtt-anim" style={{ transform: "rotate(-90deg)", filter: full ? "drop-shadow(0 0 10px " + ACCENT.gold + ")" : "none", animation: full ? "cwtt-ring-glow 1.6s ease-in-out infinite" : "none", borderRadius: "50%" }}>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#1e293b" strokeWidth={stroke} />
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={ACCENT.teal} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={offset} style={{ transition: "stroke-dashoffset 0.7s ease-out" }} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={full ? ACCENT.gold : ACCENT.blue} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={offset} style={{ transition: "stroke-dashoffset 0.7s ease-out, stroke 0.4s ease-apple" }} />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="font-bold text-white tabular-nums" style={{ fontSize: size * 0.25 + 'px' }}>{pct}%</span>
@@ -322,7 +327,7 @@ function CollaboratorPopover({ task, active, shopSailors, currentUid, userName }
     <div className="relative inline-block ml-2" style={{ animation: 'none', opacity: 1 }}>
       <button 
         onClick={(e) => { e.stopPropagation(); setShow(!show); }}
-        className="font-mono text-[10px] px-2 py-1 rounded bg-slate-800 border border-slate-700 text-teal-400 hover:bg-slate-700 flex items-center gap-1 shadow"
+        className="font-mono text-[10px] px-2 py-1 rounded bg-slate-800 border border-slate-700 text-blue-400 hover:bg-slate-700 flex items-center gap-1 shadow"
         style={{ animation: 'none', opacity: 1 }}
         title="View participant breakdown"
       >
@@ -331,7 +336,7 @@ function CollaboratorPopover({ task, active, shopSailors, currentUid, userName }
       {show && (
         <div className="absolute left-0 bottom-full mb-1 z-50 bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-xl p-3 shadow-2xl w-60 text-xs font-mono" style={{ animation: 'none', opacity: 1 }}>
           <div className="flex justify-between items-center mb-2 border-b border-slate-800 pb-1">
-            <span className="text-teal-400 font-bold">PARTICIPANT BREAKDOWN</span>
+            <span className="text-[#F2C14E] font-bold">PARTICIPANT BREAKDOWN</span>
             <button onClick={(e) => { e.stopPropagation(); setShow(false); }} className="text-slate-500 hover:text-white">✕</button>
           </div>
           <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -343,7 +348,7 @@ function CollaboratorPopover({ task, active, shopSailors, currentUid, userName }
                 <div key={u} className="flex justify-between items-center bg-slate-950 p-2 rounded border border-slate-800">
                   <div className="min-w-0 pr-2">
                     <p className="text-white truncate font-medium">{name}</p>
-                    <p className="text-[9px]" style={{ color: isRunning ? ACCENT.teal : "#64748b" }}>{isRunning ? "● CLOCKED IN" : "○ IDLE"}</p>
+                    <p className="text-[9px]" style={{ color: isRunning ? ACCENT.blue : "#64748b" }}>{isRunning ? "● CLOCKED IN" : "○ IDLE"}</p>
                   </div>
                   <span className="text-amber-400 font-bold tabular-nums shrink-0">{fmtDuration(timeMs)}</span>
                 </div>
@@ -369,7 +374,7 @@ function GuidedTour({ onComplete }) {
     <ModalOverlay zIndex="z-[70]">
       <div className="bg-slate-900/70 backdrop-blur-xl border border-white/10 rounded-2xl p-8 w-full max-w-lg shadow-2xl tour-card relative overflow-hidden">
         <div className="absolute top-0 left-0 h-1 bg-slate-800 w-full">
-            <div className="h-full transition-all duration-300" style={{ width: `${((step + 1) / steps.length) * 100}%`, backgroundColor: ACCENT.teal }} />
+            <div className="h-full transition-all duration-300" style={{ width: `${((step + 1) / steps.length) * 100}%`, backgroundColor: ACCENT.blue }} />
         </div>
         <div className="text-5xl mb-6 mt-2">{steps[step].icon}</div>
         <h2 className="text-2xl font-bold text-white mb-3 tracking-tight">{steps[step].title}</h2>
@@ -377,12 +382,12 @@ function GuidedTour({ onComplete }) {
         <div className="flex justify-between items-center">
           <div className="flex gap-2">
             {steps.map((_, i) => (
-                <div key={i} className={`w-2 h-2 rounded-full transition-colors ${i === step ? 'bg-teal-400' : 'bg-slate-700'}`} />
+                <div key={i} className={`w-2 h-2 rounded-full transition-colors ${i === step ? 'bg-blue-400' : 'bg-slate-700'}`} />
             ))}
           </div>
           <button onClick={() => step < steps.length - 1 ? setStep(s => s + 1) : onComplete()}
                 className="font-mono text-sm font-bold tracking-widest px-6 py-2.5 rounded transition-transform active:scale-95"
-                style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
+                style={{ backgroundColor: ACCENT.blue, color: "#04241f" }}>
             {step < steps.length - 1 ? "NEXT ➔" : "GET TO WORK"}
           </button>
         </div>
@@ -428,7 +433,7 @@ function TaskNotes({ task, onSaveNote, compact = false }) {
   return (
     <div className="mt-2 w-full">
       <div className="flex items-center justify-between">
-        <button onClick={() => setOpen((o) => !o)} className="font-mono text-[10px] tracking-widest flex items-center gap-1.5 transition-colors" style={{ color: hasNote ? ACCENT.teal : "#64748b" }}>
+        <button onClick={() => setOpen((o) => !o)} className="font-mono text-[10px] tracking-widest flex items-center gap-1.5 transition-colors" style={{ color: hasNote ? ACCENT.blue : "#64748b" }}>
           <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2 1.5h8v7l-2 2H2v-9z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><path d="M4 4.5h4M4 6.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>
           {hasNote ? "NOTES" : "ADD NOTE"}
           <span className="text-slate-600">{open ? "▲" : "▼"}</span>
@@ -443,8 +448,8 @@ function TaskNotes({ task, onSaveNote, compact = false }) {
         <div className="mt-2 bg-slate-950 border border-slate-800 rounded p-3">
           <textarea value={draft} onChange={(e) => { setDraft(e.target.value); setDirty(true); }} placeholder={compact ? "Closeout notes, references, follow-ups…" : "Details, references, blockers, passdown info…"} rows={compact ? 3 : 4} className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white placeholder-slate-500 leading-relaxed focus:outline-none focus:border-slate-500 resize-y" />
           <div className="flex items-center justify-between mt-2">
-            <span className="font-mono text-[10px] tracking-widest" style={{ color: dirty ? ACCENT.amber : "#475569" }}>{dirty ? "● UNSAVED" : task.note && task.note.updatedAt ? "SAVED" : "NO NOTE YET"}</span>
-            <button onClick={save} disabled={!dirty} className="font-mono text-[10px] font-bold tracking-widest px-4 py-1.5 rounded transition-transform active:scale-95 disabled:opacity-40" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>SAVE NOTE</button>
+            <span className="font-mono text-[10px] tracking-widest" style={{ color: dirty ? ACCENT.gold : "#475569" }}>{dirty ? "● UNSAVED" : task.note && task.note.updatedAt ? "SAVED" : "NO NOTE YET"}</span>
+            <button onClick={save} disabled={!dirty} className="font-mono text-[10px] font-bold tracking-widest px-4 py-1.5 rounded transition-transform active:scale-95 disabled:opacity-40" style={{ backgroundColor: ACCENT.blue, color: "#04241f" }}>SAVE NOTE</button>
           </div>
         </div>
       )}
@@ -527,9 +532,9 @@ function LabelPicker({ labels, value, onChange, onCreateLabel, compact = false }
               onChange={(e) => setDraftName(e.target.value)} 
               onKeyDown={(e) => { if (e.key === "Enter") confirmNew(); if (e.key === "Escape") setCreating(false); }} 
               placeholder="Label name…" 
-              className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-teal-400" 
+              className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-400" 
             />
-            <button type="button" onClick={confirmNew} className="font-mono text-xs font-bold tracking-wider px-3 py-1.5 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>OK</button>
+            <button type="button" onClick={confirmNew} className="font-mono text-xs font-bold tracking-wider px-3 py-1.5 rounded" style={{ backgroundColor: ACCENT.blue, color: "#04241f" }}>OK</button>
           </div>
           <div className="flex gap-1.5 justify-between">
             {LABEL_PALETTE.map(c => (
@@ -672,7 +677,7 @@ function computeAnalytics(taskList, nowTs) {
 
   const leadPerTask = dated.sort((a, b) => ((a.completedAt || "") < (b.completedAt || "") ? -1 : 1)).slice(-12).map((t) => {
       const lead = +leadDays(t).toFixed(1);
-      return { name: t.text.length > 22 ? t.text.slice(0, 22) + "…" : t.text, fullName: t.text, lead, fill: lead >= 0 ? ACCENT.teal : ACCENT.rose };
+      return { name: t.text.length > 22 ? t.text.slice(0, 22) + "…" : t.text, fullName: t.text, lead, fill: lead >= 0 ? ACCENT.blue : ACCENT.rose };
   });
 
   const priorityReliability = PRIORITIES.map((p) => {
@@ -1778,19 +1783,19 @@ function CommandWeeklyTaskTracker() {
                 value={authEmail} 
                 onChange={(e) => setAuthEmail(e.target.value)} 
                 placeholder="Username (first initial + last name)" 
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white text-center focus:outline-none focus:border-teal-400 transition-colors" 
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white text-center focus:outline-none focus:border-blue-400 transition-colors" 
               />
               <input 
                 type="password" 
                 value={authPassword} 
                 onChange={(e) => setAuthPassword(e.target.value)} 
                 placeholder="Password" 
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white text-center focus:outline-none focus:border-teal-400 transition-colors" 
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white text-center focus:outline-none focus:border-blue-400 transition-colors" 
               />
               <button 
                 type="submit" 
                 className="w-full font-mono text-sm font-bold tracking-widest px-4 py-3 rounded text-slate-950 transition-transform active:scale-95 hover:brightness-110" 
-                style={{ backgroundColor: ACCENT.teal }}
+                style={{ backgroundColor: ACCENT.blue }}
               >
                 {isRegistering ? "REGISTER ACCOUNT" : "SIGN IN"}
               </button>
@@ -1821,12 +1826,12 @@ function CommandWeeklyTaskTracker() {
                 onChange={(e) => setDraftOfficialName(e.target.value)} 
                 onKeyDown={(e) => e.key === "Enter" && saveOfficialName()} 
                 placeholder="e.g. AZ2 Medrano" 
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white text-center focus:outline-none focus:border-teal-400" 
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white text-center focus:outline-none focus:border-blue-400" 
               />
               <button 
                 onClick={saveOfficialName} 
                 className="w-full font-mono text-sm font-bold tracking-widest px-4 py-3 rounded text-slate-950 transition-transform active:scale-95" 
-                style={{ backgroundColor: ACCENT.teal }}
+                style={{ backgroundColor: ACCENT.blue }}
               >
                 CONFIRM NAME
               </button>
@@ -1843,7 +1848,7 @@ function CommandWeeklyTaskTracker() {
         <ModalOverlay zIndex="z-[80]">
           <div className="bg-slate-900/70 backdrop-blur-xl border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-mono text-xs tracking-widest text-teal-400">CHANGE USER NAME</h3>
+              <h3 className="font-mono text-xs tracking-widest text-[#F2C14E]">CHANGE USER NAME</h3>
               <button onClick={() => setShowChangeNameModal(false)} className="text-slate-500 hover:text-white text-xs">✕</button>
             </div>
             <div className="space-y-3">
@@ -1853,12 +1858,12 @@ function CommandWeeklyTaskTracker() {
                 value={draftNewName} 
                 onChange={(e) => setDraftNewName(e.target.value)} 
                 placeholder="e.g. AZ2 Medrano" 
-                className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-teal-400 font-mono"
+                className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-blue-400 font-mono"
                 autoFocus
               />
               <div className="flex justify-end gap-2 mt-6">
                 <button type="button" onClick={() => setShowChangeNameModal(false)} className="font-mono text-xs px-4 py-2 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">CANCEL</button>
-                <button type="button" onClick={saveNewUserName} className="font-mono text-xs font-bold tracking-widest px-5 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.teal }}>SAVE NAME</button>
+                <button type="button" onClick={saveNewUserName} className="font-mono text-xs font-bold tracking-widest px-5 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.blue }}>SAVE NAME</button>
               </div>
             </div>
           </div>
@@ -1871,7 +1876,7 @@ function CommandWeeklyTaskTracker() {
         <ModalOverlay zIndex="z-[80]">
           <div className="bg-slate-900/70 backdrop-blur-xl border border-white/10 rounded-2xl p-6 w-full max-w-2xl shadow-2xl">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-mono text-xs tracking-widest text-teal-400">MANAGE USER PRIVILEGES & WORK CENTERS</h3>
+              <h3 className="font-mono text-xs tracking-widest text-[#F2C14E]">MANAGE USER PRIVILEGES & WORK CENTERS</h3>
               <button onClick={() => setShowUserManager(false)} className="text-slate-500 hover:text-white text-xs">✕</button>
             </div>
             <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
@@ -1888,7 +1893,7 @@ function CommandWeeklyTaskTracker() {
                       <select 
                         value={currentEdit.role} 
                         onChange={(e) => handleEditChange(uid, 'role', e.target.value)}
-                        className="bg-slate-900/80 border border-white/10 rounded-lg px-2 py-1 text-xs text-teal-300 font-mono focus:outline-none"
+                        className="bg-slate-900/80 border border-white/10 rounded-lg px-2 py-1 text-xs text-blue-300 font-mono focus:outline-none"
                       >
                         <option value="sailor">Maintainer (Restricted)</option>
                         <option value="supervisor">Supervisor</option>
@@ -1906,7 +1911,7 @@ function CommandWeeklyTaskTracker() {
                               type="button"
                               onClick={() => toggleUserWorkCenterEdit(uid, wc)}
                               className="font-mono text-xs px-2.5 py-1 rounded border transition-colors"
-                              style={isSelected ? { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, borderColor: ACCENT.teal } : { backgroundColor: "#0f172a", color: "#64748b", borderColor: "#334155" }}
+                              style={isSelected ? { backgroundColor: ACCENT.blue + "22", color: ACCENT.blue, borderColor: ACCENT.blue } : { backgroundColor: "#0f172a", color: "#64748b", borderColor: "#334155" }}
                             >
                               WC: {wc} {isSelected ? "✓" : ""}
                             </button>
@@ -1920,7 +1925,7 @@ function CommandWeeklyTaskTracker() {
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <button onClick={() => setShowUserManager(false)} className="font-mono text-xs px-4 py-2 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">CANCEL</button>
-              <button onClick={applyAllUserPermissions} className="font-mono text-xs font-bold tracking-widest px-5 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.teal }}>APPLY CHANGES</button>
+              <button onClick={applyAllUserPermissions} className="font-mono text-xs font-bold tracking-widest px-5 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.blue }}>APPLY CHANGES</button>
             </div>
           </div>
         </ModalOverlay>
@@ -1932,12 +1937,12 @@ function CommandWeeklyTaskTracker() {
         <ModalOverlay zIndex="z-[80]">
           <div className="bg-slate-900/70 backdrop-blur-xl border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-mono text-xs tracking-widest text-teal-400">ADD NEW USER</h3>
+              <h3 className="font-mono text-xs tracking-widest text-[#F2C14E]">ADD NEW USER</h3>
               <button onClick={() => setShowProvisionModal(false)} className="text-slate-500 hover:text-white text-xs">✕</button>
             </div>
 
             {provSuccess && (
-              <div className={"mb-4 p-3 rounded font-mono text-xs border " + (provSuccess.type === 'success' ? "bg-teal-950/80 border-teal-600 text-teal-300" : "bg-rose-950/80 border-rose-600 text-rose-300")}>
+              <div className={"mb-4 p-3 rounded font-mono text-xs border " + (provSuccess.type === 'success' ? "bg-blue-950/80 border-blue-600 text-blue-300" : "bg-rose-950/80 border-rose-600 text-rose-300")}>
                 {provSuccess.text}
               </div>
             )}
@@ -1950,7 +1955,7 @@ function CommandWeeklyTaskTracker() {
                   value={newProvUser} 
                   onChange={(e) => setNewProvUser(e.target.value)} 
                   placeholder="e.g. jdoe" 
-                  className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-teal-400"
+                  className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-blue-400"
                 />
               </div>
               <div>
@@ -1960,7 +1965,7 @@ function CommandWeeklyTaskTracker() {
                   value={newProvPass} 
                   onChange={(e) => setNewProvPass(e.target.value)} 
                   placeholder="Temporary password" 
-                  className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-teal-400"
+                  className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-blue-400"
                 />
               </div>
               <div>
@@ -1970,7 +1975,7 @@ function CommandWeeklyTaskTracker() {
                   value={newProvName} 
                   onChange={(e) => setNewProvName(e.target.value)} 
                   placeholder="e.g. AN Smith" 
-                  className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-teal-400"
+                  className="h-10 w-full bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none focus:border-blue-400"
                 />
               </div>
               <div>
@@ -1988,7 +1993,7 @@ function CommandWeeklyTaskTracker() {
 
               <div className="flex justify-end gap-2 mt-6">
                 <button type="button" onClick={() => setShowProvisionModal(false)} className="font-mono text-xs px-4 py-2 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">CANCEL</button>
-                <button type="submit" className="font-mono text-xs font-bold tracking-widest px-5 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.teal }}>CREATE ACCOUNT</button>
+                <button type="submit" className="font-mono text-xs font-bold tracking-widest px-5 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.blue }}>CREATE ACCOUNT</button>
               </div>
             </form>
           </div>
@@ -2001,7 +2006,7 @@ function CommandWeeklyTaskTracker() {
         <ModalOverlay zIndex="z-[80]">
           <div className="bg-slate-900/70 backdrop-blur-xl border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-mono text-xs tracking-widest text-teal-400">WORK CENTER MANAGER</h3>
+              <h3 className="font-mono text-xs tracking-widest text-[#F2C14E]">WORK CENTER MANAGER</h3>
               <button onClick={() => setShowWcManager(false)} className="text-slate-500 hover:text-white text-xs">✕</button>
             </div>
 
@@ -2013,7 +2018,7 @@ function CommandWeeklyTaskTracker() {
                 placeholder="New WC Code (e.g. 600)" 
                 className="h-10 flex-1 bg-slate-800 border border-slate-700 rounded px-3 text-sm text-white focus:outline-none"
               />
-              <button onClick={createWorkCenterCode} className="h-10 px-4 rounded font-mono text-xs font-bold tracking-widest text-slate-950" style={{ backgroundColor: ACCENT.teal }}>ADD CODE</button>
+              <button onClick={createWorkCenterCode} className="h-10 px-4 rounded font-mono text-xs font-bold tracking-widest text-slate-950" style={{ backgroundColor: ACCENT.blue }}>ADD CODE</button>
             </div>
 
             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
@@ -2041,7 +2046,7 @@ function CommandWeeklyTaskTracker() {
         <ModalOverlay zIndex="z-[80]">
           <div className="bg-slate-900/70 backdrop-blur-xl border border-white/10 rounded-2xl p-6 w-full max-w-lg shadow-2xl">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-mono text-xs tracking-widest text-teal-400">CREATE & ASSIGN NEW TASK</h3>
+              <h3 className="font-mono text-xs tracking-widest text-[#F2C14E]">CREATE & ASSIGN NEW TASK</h3>
               <button onClick={() => setShowAddTaskModal(false)} className="text-slate-500 hover:text-white text-xs">✕</button>
             </div>
             <div className="space-y-4">
@@ -2052,7 +2057,7 @@ function CommandWeeklyTaskTracker() {
                   value={newText} 
                   onChange={(e) => setNewText(e.target.value)} 
                   placeholder="What needs to get done?" 
-                  className={"w-full h-11 bg-slate-950 border rounded-lg px-3 text-sm text-white focus:outline-none focus:border-teal-400 " + (attemptedSubmit && !newText.trim() ? "border-rose-500" : "border-slate-700")}
+                  className={"w-full h-11 bg-slate-950 border rounded-lg px-3 text-sm text-white focus:outline-none focus:border-blue-400 " + (attemptedSubmit && !newText.trim() ? "border-rose-500" : "border-slate-700")}
                   autoFocus
                 />
               </div>
@@ -2081,7 +2086,7 @@ function CommandWeeklyTaskTracker() {
                     <select 
                       value={assignedWorkerUid} 
                       onChange={(e) => setAssignedWorkerUid(e.target.value)} 
-                      className="w-full h-10 bg-slate-800 border border-teal-400 rounded px-3 text-xs text-teal-200 font-mono focus:outline-none"
+                      className="w-full h-10 bg-slate-800 border border-blue-400 rounded px-3 text-xs text-blue-200 font-mono focus:outline-none"
                     >
                       <option value="">👤 Assign to Me</option>
                       <optgroup label="Work Center Pools">
@@ -2113,7 +2118,7 @@ function CommandWeeklyTaskTracker() {
 
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setShowAddTaskModal(false)} className="font-mono text-xs px-4 py-2 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">CANCEL</button>
-              <button onClick={addTask} className="font-mono text-xs font-bold tracking-widest px-5 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.teal }}>CONFIRM & ADD TASK</button>
+              <button onClick={addTask} className="font-mono text-xs font-bold tracking-widest px-5 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.blue }}>CONFIRM & ADD TASK</button>
             </div>
           </div>
         </ModalOverlay>
@@ -2123,7 +2128,7 @@ function CommandWeeklyTaskTracker() {
     if (confirmAction) {
       let title = "Confirm Action", msg = "Are you sure?", btn = "YES", color = ACCENT.rose;
       if (confirmAction.type === 'delete') { title = "Delete Task"; msg = "This task will be permanently removed."; }
-      if (confirmAction.type === 'complete' || confirmAction.type === 'finish') { title = "Complete Task"; msg = "Mark this task as finished and freeze the timer?"; btn = "COMPLETE"; color = ACCENT.teal; }
+      if (confirmAction.type === 'complete' || confirmAction.type === 'finish') { title = "Complete Task"; msg = "Mark this task as finished and freeze the timer?"; btn = "COMPLETE"; color = ACCENT.blue; }
       if (confirmAction.type === 'signout') { title = "Sign Out"; msg = "Are you sure you want to sign out?"; btn = "SIGN OUT"; color = ACCENT.rose; }
       if (confirmAction.type === 'reset') { title = "NUCLEAR RESET"; msg = "Are you absolutely sure? This will wipe all tasks, history, custom labels, and analytics permanently."; btn = "NUKE IT"; }
       return <ConfirmModal title={title} message={msg} onConfirm={executeConfirmAction} onCancel={() => setConfirmAction(null)} confirmText={btn} confirmColor={color} />;
@@ -2165,7 +2170,7 @@ function CommandWeeklyTaskTracker() {
                               } 
                             }} 
                             className="font-mono text-[10px] font-bold tracking-widest px-3 rounded" 
-                            style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}
+                            style={{ backgroundColor: ACCENT.blue, color: "#04241f" }}
                         >
                             ADD
                         </button>
@@ -2223,7 +2228,7 @@ function CommandWeeklyTaskTracker() {
                 <select 
                   value={editingTask.assignedTo || currentUid} 
                   onChange={(e) => setEditingTask({...editingTask, assignedTo: e.target.value})}
-                  className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-teal-300 font-mono focus:outline-none"
+                  className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-blue-300 font-mono focus:outline-none"
                 >
                   <option value={currentUid}>👤 Assign to Me</option>
                   <optgroup label="Work Center Pools">
@@ -2241,7 +2246,7 @@ function CommandWeeklyTaskTracker() {
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setEditingTask(null)} className="font-mono text-xs tracking-wider px-4 py-2 rounded bg-slate-800 text-slate-400 border border-slate-700">CANCEL</button>
-              <button onClick={saveEdit} className="font-mono text-xs font-bold tracking-wider px-4 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.teal }}>SAVE CHANGES</button>
+              <button onClick={saveEdit} className="font-mono text-xs font-bold tracking-wider px-4 py-2 rounded text-slate-950" style={{ backgroundColor: ACCENT.blue }}>SAVE CHANGES</button>
             </div>
           </div>
         </ModalOverlay>
@@ -2254,7 +2259,7 @@ function CommandWeeklyTaskTracker() {
         <ModalOverlay zIndex="z-[90]">
           <div className="bg-slate-900/70 backdrop-blur-xl border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
             <div className="px-6 py-5 border-b border-slate-800" style={{ background: "linear-gradient(135deg, rgba(34,224,201,0.14), transparent)" }}>
-              <p className="font-mono text-[10px] tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// DAILY BRIEF</p>
+              <p className="font-mono text-[10px] tracking-widest mb-1" style={{ color: ACCENT.gold }}>/// DAILY BRIEF</p>
               <h2 className="text-2xl font-bold text-white tracking-tight">{getGreeting()}, {userName}.</h2>
               <p className="text-sm text-slate-400 mt-1">Here's your daily brief before you get underway.</p>
             </div>
@@ -2269,7 +2274,7 @@ function CommandWeeklyTaskTracker() {
                     {briefTasks.slice(0, 6).map((t) => (
                       <li key={t.id} className="flex items-center justify-between gap-3 bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-2">
                         <span className="text-sm text-slate-200 truncate">{t.text}</span>
-                        <span className="font-mono text-[10px] shrink-0" style={{ color: daysUntil(t.due) < 0 ? ACCENT.rose : ACCENT.amber }}>
+                        <span className="font-mono text-[10px] shrink-0" style={{ color: daysUntil(t.due) < 0 ? ACCENT.rose : ACCENT.gold }}>
                           {daysUntil(t.due) < 0 ? "OVERDUE" : "DUE TODAY"}
                         </span>
                       </li>
@@ -2291,7 +2296,7 @@ function CommandWeeklyTaskTracker() {
                     <p className="font-mono text-[9px] tracking-widest text-slate-500 mt-1">DONE THIS WEEK</p>
                   </div>
                   <div className="bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-3 text-center">
-                    <p className="text-xl font-bold" style={{ color: ACCENT.amber }}>{analytics.currentStreak}d</p>
+                    <p className="text-xl font-bold" style={{ color: ACCENT.gold }}>{analytics.currentStreak}d</p>
                     <p className="font-mono text-[9px] tracking-widest text-slate-500 mt-1">ACTIVE STREAK</p>
                   </div>
                 </div>
@@ -2299,7 +2304,7 @@ function CommandWeeklyTaskTracker() {
             </div>
 
             <div className="px-6 py-4 border-t border-slate-800">
-              <button onClick={dismissDailyBrief} className="w-full font-mono text-sm font-bold tracking-widest px-4 py-3 rounded text-slate-950 transition-transform active:scale-95 hover:brightness-110" style={{ backgroundColor: ACCENT.teal }}>
+              <button onClick={dismissDailyBrief} className="w-full font-mono text-sm font-bold tracking-widest px-4 py-3 rounded text-slate-950 transition-transform active:scale-95 hover:brightness-110" style={{ backgroundColor: ACCENT.blue }}>
                 LET'S GET TO WORK
               </button>
             </div>
@@ -2343,18 +2348,18 @@ function CommandWeeklyTaskTracker() {
                         {t.label && <span className="font-mono text-sm tracking-widest px-3 py-1 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
                         <span className="font-mono text-sm tracking-widest px-3 py-1 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a" }}>{pm.label}</span>
                         {t.due && <span className="font-mono text-xs tracking-widest px-2 py-1 rounded border border-slate-700 text-slate-400">{dueLabelTxt(t.due)}</span>}
-                        {t.assignedTo && <span className="font-mono text-xs tracking-widest px-2 py-1 rounded bg-teal-950 text-teal-300 border border-teal-800">{getWorkerName(t.assignedTo)}</span>}
+                        {t.assignedTo && <span className="font-mono text-xs tracking-widest px-2 py-1 rounded bg-blue-950 text-blue-300 border border-blue-800">{getWorkerName(t.assignedTo)}</span>}
                     </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 shrink-0">
                     <span className="text-2xl font-mono tabular-nums font-bold flex items-center gap-2">
-                      <LiveTaskTimer task={t} active={isAnyoneRunning} style={{ color: isAnyoneRunning ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569" }} />
+                      <LiveTaskTimer task={t} active={isAnyoneRunning} style={{ color: isAnyoneRunning ? ACCENT.blue : ms > 0 ? "#94a3b8" : "#475569" }} />
                       <CollaboratorPopover task={t} active={isAnyoneRunning} shopSailors={shopSailors} currentUid={currentUid} userName={userName} />
                     </span>
-                    <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-xs font-bold tracking-widest px-4 py-2 rounded" style={isCurrentUserRunning ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>
+                    <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-xs font-bold tracking-widest px-4 py-2 rounded" style={isCurrentUserRunning ? { backgroundColor: ACCENT.gold + "22", color: ACCENT.gold, border: "1px solid " + ACCENT.gold + "66" } : { backgroundColor: ACCENT.blue + "22", color: ACCENT.blue, border: "1px solid " + ACCENT.blue + "66" }}>
                       {isCurrentUserRunning ? "❚❚ CLOCK OUT" : ms > 0 ? "▶ RESUME" : "▶ CLOCK IN"}
                     </button>
-                    <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-xs font-bold tracking-widest px-4 py-2 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
+                    <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-xs font-bold tracking-widest px-4 py-2 rounded" style={{ backgroundColor: ACCENT.blue, color: "#04241f" }}>
                       ✓ FINISH
                     </button>
                 </div>
@@ -2367,7 +2372,7 @@ function CommandWeeklyTaskTracker() {
           {celebrate && <Confetti />}
           <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4 shrink-0">
             <div>
-              <p className="font-mono text-lg tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS</p>
+              <p className="font-mono text-lg tracking-widest mb-1" style={{ color: ACCENT.gold }}>/// FRC MAYPORT — TASK OPS</p>
               <h1 className="text-4xl sm:text-5xl font-bold text-white tracking-tight">ACTIVE BOARD</h1>
             </div>
             <div className="flex items-center gap-4">
@@ -2398,7 +2403,7 @@ function CommandWeeklyTaskTracker() {
                  
                  {highTasks.length > 0 && (
                      <>
-                        <h2 className="text-lg font-mono tracking-widest mt-12 mb-4 border-b pb-2" style={{ color: ACCENT.amber, borderColor: ACCENT.amber+"44" }}>ON THE HORIZON — HIGH PRIORITY</h2>
+                        <h2 className="text-lg font-mono tracking-widest mt-12 mb-4 border-b pb-2" style={{ color: ACCENT.gold, borderColor: ACCENT.gold+"44" }}>ON THE HORIZON — HIGH PRIORITY</h2>
                         <div className="space-y-4 mb-8">{highTasks.map(renderTVTask)}</div>
                      </>
                  )}
@@ -2437,7 +2442,7 @@ function CommandWeeklyTaskTracker() {
       {renderModals()}
 
       {errorAlert && (
-        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 rounded-lg shadow-2xl font-mono text-sm tracking-widest border flex items-center gap-4 ${errorAlert.includes("success") ? "bg-teal-950/90 border-teal-500 text-teal-300" : "bg-rose-950/90 border-rose-500 text-rose-300"}`}>
+        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 rounded-lg shadow-2xl font-mono text-sm tracking-widest border flex items-center gap-4 ${errorAlert.includes("success") ? "bg-blue-950/90 border-blue-500 text-blue-300" : "bg-rose-950/90 border-rose-500 text-rose-300"}`}>
             <span>{errorAlert}</span>
             <button onClick={() => setErrorAlert(null)} className="text-lg opacity-70 hover:opacity-100 pl-4">&times;</button>
         </div>
@@ -2446,15 +2451,15 @@ function CommandWeeklyTaskTracker() {
       <div className="max-w-4xl mx-auto w-full flex-1">
         <header className="mb-8 flex justify-between items-end">
           <div>
-              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.teal }}>/// FRC MAYPORT — TASK OPS [v7.4]</p>
+              <p className="font-mono text-xs tracking-widest mb-1" style={{ color: ACCENT.gold }}>/// FRC MAYPORT — TASK OPS [v7.4]</p>
               <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-2">Command Weekly Task Tracker</h1>
               
               <div className="flex items-center gap-2 mt-2 font-mono text-[10px]">
                 <span className="px-2 py-0.5 rounded-full border border-white/10 bg-slate-900/70 text-slate-400">
-                  AUTH: {currentUid ? <span className="text-teal-400">ACTIVE ({userName || currentUid.slice(0,6)})</span> : <span className="text-rose-400">NOT SIGNED IN (READ-ONLY)</span>}
+                  AUTH: {currentUid ? <span className="text-blue-400">ACTIVE ({userName || currentUid.slice(0,6)})</span> : <span className="text-rose-400">NOT SIGNED IN (READ-ONLY)</span>}
                 </span>
                 <span className="px-2 py-0.5 rounded-full border border-white/10 bg-slate-900/70 text-slate-400">
-                  ROLE: <span className="text-teal-300 uppercase">{userRole}</span>
+                  ROLE: <span className="text-blue-300 uppercase">{userRole}</span>
                 </span>
               </div>
 
@@ -2472,7 +2477,7 @@ function CommandWeeklyTaskTracker() {
               transform: `translateX(${navPillStyle.left}px)`,
               width: navPillStyle.width,
               opacity: navPillStyle.opacity,
-              backgroundColor: ACCENT.teal,
+              backgroundColor: ACCENT.blue,
               boxShadow: "0 2px 14px rgba(34,224,201,0.35)",
             }}
           />
@@ -2493,7 +2498,7 @@ function CommandWeeklyTaskTracker() {
           <div className="space-y-6">
             <section className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6 flex flex-col md:flex-row justify-between items-center gap-4">
               <div className="text-center md:text-left">
-                <h2 className="font-mono text-xs tracking-widest text-teal-400 mb-1">COMMAND MASTER ADMIN PANEL</h2>
+                <h2 className="font-mono text-xs tracking-widest text-[#F2C14E] mb-1">COMMAND MASTER ADMIN PANEL</h2>
                 <p className="text-xl font-bold text-white leading-snug">
                   Work Center &<br />
                   Division Oversight
@@ -2501,7 +2506,7 @@ function CommandWeeklyTaskTracker() {
               </div>
               {isAdmin && (
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-2 w-full md:w-auto">
-                  <button onClick={() => setShowProvisionModal(true)} className="h-10 font-mono text-xs font-bold tracking-widest rounded transition-transform active:scale-95 flex items-center justify-center w-full sm:w-48" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
+                  <button onClick={() => setShowProvisionModal(true)} className="h-10 font-mono text-xs font-bold tracking-widest rounded transition-transform active:scale-95 flex items-center justify-center w-full sm:w-48" style={{ backgroundColor: ACCENT.blue, color: "#04241f" }}>
                     ＋ ADD NEW USER
                   </button>
                   <button onClick={openUserManager} className="h-10 font-mono text-xs tracking-widest rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 flex items-center justify-center w-full sm:w-48">
@@ -2518,7 +2523,7 @@ function CommandWeeklyTaskTracker() {
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div className="flex flex-wrap items-center gap-3">
                   <div>
-                    <h3 className="font-mono text-xs tracking-widest text-teal-400 mb-1">WORK CENTER MONITOR</h3>
+                    <h3 className="font-mono text-xs tracking-widest text-[#F2C14E] mb-1">WORK CENTER MONITOR</h3>
                     <p className="text-lg font-bold text-white">Inspect Personnel Productivity & Analytics</p>
                   </div>
                   <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded px-3 py-1.5">
@@ -2588,7 +2593,7 @@ function CommandWeeklyTaskTracker() {
                       <h3 className="text-2xl font-bold text-white mb-1">
                         {isWcRollup ? (rollupWcCode === "ALL" ? "All Work Centers (Division Rollup)" : `Work Center Rollup: ${rollupWcCode}`) : (selectedSailorObj?.displayName || selectedSailorObj?.email)}
                       </h3>
-                      <p className="font-mono text-xs text-teal-400 tracking-wider mb-3">
+                      <p className="font-mono text-xs text-[#F2C14E] tracking-wider mb-3">
                         {isWcRollup ? `FILTER: ${rollupWcCode}` : `WORK CENTERS: ${selectedSailorObj.workCenters ? selectedSailorObj.workCenters.join(", ") : "040"} · ROLE: ${(selectedSailorObj.role || "sailor").toUpperCase()}`}
                       </p>
                       <p className="text-xs text-slate-400">{oversightTotal === 0 ? "No active tasks assigned." : `${oversightCompleted} of ${oversightTotal} tasks completed (${oversightPct}%).`}</p>
@@ -2596,17 +2601,17 @@ function CommandWeeklyTaskTracker() {
                   </div>
 
                   <div className="flex gap-2 bg-slate-950 border border-slate-800 rounded-lg p-1 w-fit">
-                    <button onClick={() => setSailorSubTab("active")} className="font-mono text-[10px] font-bold tracking-widest px-4 py-2 rounded transition-colors" style={sailorSubTab === "active" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>
+                    <button onClick={() => setSailorSubTab("active")} className="font-mono text-[10px] font-bold tracking-widest px-4 py-2 rounded transition-colors" style={sailorSubTab === "active" ? { backgroundColor: ACCENT.blue, color: "#04241f" } : { color: "#64748b" }}>
                       ACTIVE TASKS ({sailorTasks.filter(t => !t.done).length})
                     </button>
-                    <button onClick={() => setSailorSubTab("history")} className="font-mono text-[10px] font-bold tracking-widest px-4 py-2 rounded transition-colors" style={sailorSubTab === "history" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>
+                    <button onClick={() => setSailorSubTab("history")} className="font-mono text-[10px] font-bold tracking-widest px-4 py-2 rounded transition-colors" style={sailorSubTab === "history" ? { backgroundColor: ACCENT.blue, color: "#04241f" } : { color: "#64748b" }}>
                       COMPLETED HISTORY ({sailorTasks.filter(t => t.done).length})
                     </button>
                   </div>
 
                   {sailorSubTab === "active" ? (
                     <div className="space-y-3">
-                      <h4 className="font-mono text-xs tracking-widest text-teal-400">ACTIVE TASKS & LIVE TIMERS</h4>
+                      <h4 className="font-mono text-xs tracking-widest text-[#F2C14E]">ACTIVE TASKS & LIVE TIMERS</h4>
                       {sailorTasks.filter(t => !t.done).length === 0 ? (
                         <p className="text-xs text-slate-500 font-mono text-center py-4 bg-slate-950 rounded border border-slate-800">No active tasks currently assigned.</p>
                       ) : (
@@ -2625,15 +2630,15 @@ function CommandWeeklyTaskTracker() {
                                     {t.label && <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: lColor, backgroundColor: lColor+"1a", border: "1px solid "+lColor+"55" }}>#{t.label}</span>}
                                     <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
                                     {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
-                                    <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded bg-teal-950 text-teal-300 border border-teal-800">{getWorkerName(t.assignedTo)}</span>
+                                    <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">{getWorkerName(t.assignedTo)}</span>
                                   </div>
                                   <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-900/70 border border-white/10 rounded-lg px-2.5 py-1.5 w-fit">
                                     <span className="font-mono text-sm font-bold tabular-nums tracking-wider flex items-center gap-2">
-                                      <LiveTaskTimer task={t} active={isAnyoneRunning} style={{ color: isAnyoneRunning ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: isAnyoneRunning ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }} />
+                                      <LiveTaskTimer task={t} active={isAnyoneRunning} style={{ color: isAnyoneRunning ? ACCENT.blue : ms > 0 ? "#94a3b8" : "#475569", animation: isAnyoneRunning ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }} />
                                       <CollaboratorPopover task={t} active={isAnyoneRunning} shopSailors={shopSailors} currentUid={currentUid} userName={userName} />
                                     </span>
-                                    <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={isCurrentUserRunning ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{isCurrentUserRunning ? "❚❚ CLOCK OUT" : ms > 0 ? "▶ RESUME" : "▶ CLOCK IN"}</button>
-                                    <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓ FINISH</button>
+                                    <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={isCurrentUserRunning ? { backgroundColor: ACCENT.gold + "22", color: ACCENT.gold, border: "1px solid " + ACCENT.gold + "66" } : { backgroundColor: ACCENT.blue + "22", color: ACCENT.blue, border: "1px solid " + ACCENT.blue + "66" }}>{isCurrentUserRunning ? "❚❚ CLOCK OUT" : ms > 0 ? "▶ RESUME" : "▶ CLOCK IN"}</button>
+                                    <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.blue, color: "#04241f" }}>✓ FINISH</button>
                                   </div>
                                   <TaskNotes task={t} onSaveNote={(id, text) => saveTaskNote(id, text, t.assignedTo)} />
                                 </div>
@@ -2649,7 +2654,7 @@ function CommandWeeklyTaskTracker() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <h4 className="font-mono text-xs tracking-widest text-teal-400">COMPLETED HISTORY</h4>
+                      <h4 className="font-mono text-xs tracking-widest text-[#F2C14E]">COMPLETED HISTORY</h4>
                       {sailorTasks.filter(t => t.done).length === 0 ? (
                         <p className="text-xs text-slate-500 font-mono text-center py-4 bg-slate-950 rounded border border-slate-800">No completed tasks logged.</p>
                       ) : (
@@ -2657,13 +2662,13 @@ function CommandWeeklyTaskTracker() {
                           const pm = priorityMeta(t.priority);
                           return (
                             <div key={t.id + (t.assignedTo || '')} className="bg-slate-950 border border-slate-800 rounded-lg p-3 flex items-start gap-3" style={{ borderLeft: "4px solid " + pm.color + "55" }}>
-                              <button onClick={() => uncheckTask(t.id, t.assignedTo)} className="mt-0.5 w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center" style={{ borderColor: ACCENT.teal, backgroundColor: ACCENT.teal }} title="Restore task"><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5L5.5 11L12 3.5" stroke="#04241f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+                              <button onClick={() => uncheckTask(t.id, t.assignedTo)} className="mt-0.5 w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center" style={{ borderColor: ACCENT.blue, backgroundColor: ACCENT.blue }} title="Restore task"><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5L5.5 11L12 3.5" stroke="#04241f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm text-slate-400 line-through">{t.text}</p>
                                 <div className="flex gap-2 mt-1.5 font-mono text-[10px] tracking-widest text-slate-500">
-                                  <span style={{ color: ACCENT.teal }}>✓ {fmtStamp(t.completedAt)}</span>
-                                  {totalTaskMs(t, Date.now()) > 0 && <span style={{ color: ACCENT.amber }}>⏱ {fmtDuration(totalTaskMs(t, Date.now()))}</span>}
-                                  <span className="text-teal-400">· {getWorkerName(t.assignedTo)}</span>
+                                  <span style={{ color: ACCENT.blue }}>✓ {fmtStamp(t.completedAt)}</span>
+                                  {totalTaskMs(t, Date.now()) > 0 && <span style={{ color: ACCENT.gold }}>⏱ {fmtDuration(totalTaskMs(t, Date.now()))}</span>}
+                                  <span className="text-blue-400">· {getWorkerName(t.assignedTo)}</span>
                                 </div>
                                 <TaskNotes task={t} onSaveNote={(id, text) => saveTaskNote(id, text, t.assignedTo)} compact />
                               </div>
@@ -2676,7 +2681,7 @@ function CommandWeeklyTaskTracker() {
                   )}
 
                   <div className="bg-slate-950 border border-slate-800 rounded-lg p-4">
-                    <h4 className="font-mono text-xs tracking-widest text-teal-400 mb-2">MAN-HOUR BREAKDOWN</h4>
+                    <h4 className="font-mono text-xs tracking-widest text-[#F2C14E] mb-2">MAN-HOUR BREAKDOWN</h4>
                     {sailorManHourDistribution.length > 0 ? (
                       <ResponsiveContainer width="100%" height={180}>
                         <BarChart data={sailorManHourDistribution} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -2684,7 +2689,7 @@ function CommandWeeklyTaskTracker() {
                           <XAxis dataKey="name" tick={axisTickLight} />
                           <YAxis tick={axisTick} domain={[0, 'dataMax + 1']} allowDecimals={false} />
                           <Tooltip contentStyle={chartTooltipStyle} formatter={(v) => [v + " hours", "Hours"]} />
-                          <Bar dataKey="hours" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
+                          <Bar dataKey="hours" fill={ACCENT.blue} radius={[3, 3, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     ) : (
@@ -2696,7 +2701,7 @@ function CommandWeeklyTaskTracker() {
                   <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 space-y-4">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                       <div>
-                        <h4 className="font-mono text-xs tracking-widest text-teal-400">
+                        <h4 className="font-mono text-xs tracking-widest text-[#F2C14E]">
                           {isWcRollup ? "WORK CENTER ROLLUP ANALYTICS" : "INDIVIDUAL ANALYTICS"}
                         </h4>
                         <p className="text-[11px] text-slate-500 mt-0.5">
@@ -2715,26 +2720,26 @@ function CommandWeeklyTaskTracker() {
                       <React.Fragment>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                           <KpiCard label="COMPLETED" value={oversightAnalytics.totalDone} sub="LIFETIME" />
-                          <KpiCard label="ON-TIME RATE" value={oversightOnTimeRate !== null ? oversightOnTimeRate + "%" : "—"} sub={oversightAnalytics.onTime + " ON TIME / " + oversightAnalytics.late + " LATE"} color={oversightOnTimeRate === null ? "#64748b" : oversightOnTimeRate >= 80 ? ACCENT.teal : oversightOnTimeRate >= 50 ? ACCENT.amber : ACCENT.rose} />
-                          <KpiCard label="MEDIAN LEAD" value={oversightAnalytics.medianLead !== null ? Math.abs(oversightAnalytics.medianLead).toFixed(1) + "d" : "—"} sub={oversightAnalytics.medianLead === null ? "NO DATED TASKS" : oversightAnalytics.medianLead >= 0 ? "EARLY (TYPICAL)" : "LATE (TYPICAL)"} color={oversightAnalytics.medianLead === null ? "#64748b" : oversightAnalytics.medianLead >= 0 ? ACCENT.teal : ACCENT.rose} />
-                          <KpiCard label="TIME TRACKED" value={oversightAnalytics.totalTrackedMs > 0 ? fmtMinutes(oversightAnalytics.totalTrackedMs) : "—"} sub="TOTAL HOURS" color={oversightAnalytics.totalTrackedMs > 0 ? ACCENT.teal : "#64748b"} />
+                          <KpiCard label="ON-TIME RATE" value={oversightOnTimeRate !== null ? oversightOnTimeRate + "%" : "—"} sub={oversightAnalytics.onTime + " ON TIME / " + oversightAnalytics.late + " LATE"} color={oversightOnTimeRate === null ? "#64748b" : oversightOnTimeRate >= 80 ? ACCENT.blue : oversightOnTimeRate >= 50 ? ACCENT.gold : ACCENT.rose} />
+                          <KpiCard label="MEDIAN LEAD" value={oversightAnalytics.medianLead !== null ? Math.abs(oversightAnalytics.medianLead).toFixed(1) + "d" : "—"} sub={oversightAnalytics.medianLead === null ? "NO DATED TASKS" : oversightAnalytics.medianLead >= 0 ? "EARLY (TYPICAL)" : "LATE (TYPICAL)"} color={oversightAnalytics.medianLead === null ? "#64748b" : oversightAnalytics.medianLead >= 0 ? ACCENT.blue : ACCENT.rose} />
+                          <KpiCard label="TIME TRACKED" value={oversightAnalytics.totalTrackedMs > 0 ? fmtMinutes(oversightAnalytics.totalTrackedMs) : "—"} sub="TOTAL HOURS" color={oversightAnalytics.totalTrackedMs > 0 ? ACCENT.blue : "#64748b"} />
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <ChartCard wide title={"DAILY THROUGHPUT — LAST " + oversightChartRange + " DAYS"} subtitle="Bars: tasks completed per day. Line: 7-day rolling average." action={<div className="flex gap-1">{[14, 30].map((r) => (<button key={r} onClick={() => setOversightChartRange(r)} className="font-mono text-[10px] font-bold tracking-widest px-2.5 py-1 rounded" style={oversightChartRange === r ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b", border: "1px solid #334155" }}>{r}D</button>))}</div>}>
+                          <ChartCard wide title={"DAILY THROUGHPUT — LAST " + oversightChartRange + " DAYS"} subtitle="Bars: tasks completed per day. Line: 7-day rolling average." action={<div className="flex gap-1">{[14, 30].map((r) => (<button key={r} onClick={() => setOversightChartRange(r)} className="font-mono text-[10px] font-bold tracking-widest px-2.5 py-1 rounded" style={oversightChartRange === r ? { backgroundColor: ACCENT.blue, color: "#04241f" } : { color: "#64748b", border: "1px solid #334155" }}>{r}D</button>))}</div>}>
                             <ResponsiveContainer width="100%" height={190}>
                               <ComposedChart data={oversightAnalytics.byDay30.slice(-oversightChartRange)} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                                 <XAxis dataKey="label" tick={axisTick} interval={oversightChartRange === 30 ? 3 : 1} />
                                 <YAxis allowDecimals={false} tick={axisTick} />
                                 <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
-                                <Bar dataKey="count" name="Completed" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
-                                <Line type="monotone" dataKey="avg7" name="7-day avg" stroke={ACCENT.amber} strokeWidth={2} dot={false} />
+                                <Bar dataKey="count" name="Completed" fill={ACCENT.blue} radius={[3, 3, 0, 0]} />
+                                <Line type="monotone" dataKey="avg7" name="7-day avg" stroke={ACCENT.gold} strokeWidth={2} dot={false} />
                               </ComposedChart>
                             </ResponsiveContainer>
                           </ChartCard>
 
-                          <ChartCard title="TIME EFFICIENCY BY CATEGORY" subtitle="Average (teal) and total (amber) clocked minutes per label.">
+                          <ChartCard title="TIME EFFICIENCY BY CATEGORY" subtitle="Average (blue) and total (gold) clocked minutes per label.">
                             {oversightAnalytics.timeByLabel.length > 0 ? (
                               <ResponsiveContainer width="100%" height={190}>
                                 <BarChart data={oversightAnalytics.timeByLabel} margin={{ top: 16, right: 4, left: -20, bottom: 0 }}>
@@ -2743,8 +2748,8 @@ function CommandWeeklyTaskTracker() {
                                   <YAxis tick={axisTick} label={{ value: "minutes", angle: -90, position: "insideLeft", fill: "#475569", fontSize: 9, fontFamily: "monospace" }} />
                                   <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v, name) => [v + " min", name]} />
                                   <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
-                                  <Bar dataKey="avgMin" name="Avg per task" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
-                                  <Bar dataKey="totalMin" name="Total" fill={ACCENT.amber} radius={[3, 3, 0, 0]} />
+                                  <Bar dataKey="avgMin" name="Avg per task" fill={ACCENT.blue} radius={[3, 3, 0, 0]} />
+                                  <Bar dataKey="totalMin" name="Total" fill={ACCENT.gold} radius={[3, 3, 0, 0]} />
                                 </BarChart>
                               </ResponsiveContainer>
                             ) : (
@@ -2752,7 +2757,7 @@ function CommandWeeklyTaskTracker() {
                             )}
                           </ChartCard>
 
-                          <ChartCard title="RELIABILITY BY PRIORITY" subtitle="On-time (teal) vs late (rose) per tier.">
+                          <ChartCard title="RELIABILITY BY PRIORITY" subtitle="On-time (blue) vs late (rose) per tier.">
                             <ResponsiveContainer width="100%" height={190}>
                               <BarChart data={oversightAnalytics.priorityReliability} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -2760,7 +2765,7 @@ function CommandWeeklyTaskTracker() {
                                 <YAxis allowDecimals={false} tick={axisTick} />
                                 <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
                                 <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
-                                <Bar dataKey="onTime" name="On time" stackId="r" fill={ACCENT.teal} />
+                                <Bar dataKey="onTime" name="On time" stackId="r" fill={ACCENT.blue} />
                                 <Bar dataKey="late" name="Late" stackId="r" fill={ACCENT.rose} radius={[3, 3, 0, 0]} />
                               </BarChart>
                             </ResponsiveContainer>
@@ -2780,10 +2785,10 @@ function CommandWeeklyTaskTracker() {
             <section className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-2xl p-8 text-center flex flex-col items-center">
               <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} size={210} stroke={16} />
               <h2 className="font-mono text-base tracking-widest text-slate-300 mt-6 mb-2">ACTIVE WEEK PROGRESS: <span className="text-white font-bold">{pct}% COMPLETED</span></h2>
-              <p className="text-sm text-slate-500 mb-8 max-w-md">{pct === 100 && weekTotal > 0 ? <span className="font-mono tracking-widest" style={{ color: ACCENT.teal }}>✓ ALL TASKS SECURED FOR THE WEEK.</span> : `Knock out ${weekTotal - weekCompleted} more tasks to close out your weekly quota.`}</p>
+              <p className="text-sm text-slate-500 mb-8 max-w-md">{pct === 100 && weekTotal > 0 ? <span className="font-mono tracking-widest" style={{ color: ACCENT.blue }}>✓ ALL TASKS SECURED FOR THE WEEK.</span> : `Knock out ${weekTotal - weekCompleted} more tasks to close out your weekly quota.`}</p>
               
               <div className="flex flex-wrap justify-center gap-4">
-                <button onClick={() => setTab("tasks")} className="font-mono text-xs font-bold tracking-widest px-6 py-3 rounded transition-transform active:scale-95" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>VIEW ACTIVE TASKS ➔</button>
+                <button onClick={() => setTab("tasks")} className="font-mono text-xs font-bold tracking-widest px-6 py-3 rounded transition-transform active:scale-95" style={{ backgroundColor: ACCENT.blue, color: "#04241f" }}>VIEW ACTIVE TASKS ➔</button>
                 <button onClick={() => setTab("analytics")} className="font-mono text-xs font-bold tracking-widest px-6 py-3 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">EXPLORE ANALYTICS</button>
               </div>
             </section>
@@ -2796,12 +2801,12 @@ function CommandWeeklyTaskTracker() {
               </div>
               <div className="bg-slate-900/70 border border-white/10 rounded-xl p-5">
                 <p className="font-mono text-[10px] tracking-widest text-slate-500 mb-1">LIFETIME</p>
-                <p className="text-2xl font-bold" style={{ color: ACCENT.teal }}>{analytics.totalDone}</p>
+                <p className="text-2xl font-bold" style={{ color: ACCENT.blue }}>{analytics.totalDone}</p>
                 <p className="font-mono text-xs text-slate-400 mt-1">Completed Tasks Logged</p>
               </div>
               <div className="bg-slate-900/70 border border-white/10 rounded-xl p-5">
                 <p className="font-mono text-[10px] tracking-widest text-slate-500 mb-1">WEEKDAY STREAK</p>
-                <p className="text-2xl font-bold" style={{ color: ACCENT.amber }}>{analytics.currentStreak}d</p>
+                <p className="text-2xl font-bold" style={{ color: ACCENT.gold }}>{analytics.currentStreak}d</p>
                 <p className="font-mono text-xs text-slate-400 mt-1">Consecutive Workdays</p>
               </div>
             </div>
@@ -2814,17 +2819,17 @@ function CommandWeeklyTaskTracker() {
               <ProgressRing pct={pct} completed={weekCompleted} total={weekTotal} size={110} stroke={10} />
               <div className="flex-1">
                 <h2 className="font-mono text-xs tracking-widest text-slate-400 mb-1">WEEKLY PROGRESS: <span className="text-white font-bold">{pct}%</span></h2>
-                <p className="text-xs text-slate-500">{pct === 100 && weekTotal > 0 ? <span className="font-mono" style={{ color: ACCENT.teal }}>✓ ALL SECURED.</span> : `${weekTotal - weekCompleted} tasks remaining this week.`}</p>
+                <p className="text-xs text-slate-500">{pct === 100 && weekTotal > 0 ? <span className="font-mono" style={{ color: ACCENT.blue }}>✓ ALL SECURED.</span> : `${weekTotal - weekCompleted} tasks remaining this week.`}</p>
               </div>
             </section>
 
             {!isRestrictedSailor && (
               <section className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-2xl p-4 mb-6 shadow-sm flex items-center justify-between">
                 <div>
-                  <h3 className="font-mono text-xs tracking-widest text-teal-400 mb-1">TASK MANAGEMENT</h3>
+                  <h3 className="font-mono text-xs tracking-widest text-[#F2C14E] mb-1">TASK MANAGEMENT</h3>
                   <p className="text-sm text-slate-400">Create and assign new operational tasks for the shop.</p>
                 </div>
-                <button onClick={() => setShowAddTaskModal(true)} className="font-mono text-xs font-bold tracking-widest px-6 py-3 rounded active:scale-95 transition-transform shadow-lg hover:brightness-110" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>
+                <button onClick={() => setShowAddTaskModal(true)} className="font-mono text-xs font-bold tracking-widest px-6 py-3 rounded active:scale-95 transition-transform shadow-lg hover:brightness-110" style={{ backgroundColor: ACCENT.blue, color: "#04241f" }}>
                   ＋ CREATE NEW TASK
                 </button>
               </section>
@@ -2842,8 +2847,8 @@ function CommandWeeklyTaskTracker() {
                 </select>
               </div>
               <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded border border-slate-800 w-full sm:w-auto justify-end">
-                <button onClick={() => setViewMode("list")} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded transition-colors" style={viewMode === "list" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>☰ LIST</button>
-                <button onClick={() => setViewMode("grid")} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded transition-colors" style={viewMode === "grid" ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b" }}>⊞ FINDER TILES</button>
+                <button onClick={() => setViewMode("list")} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded transition-colors" style={viewMode === "list" ? { backgroundColor: ACCENT.blue, color: "#04241f" } : { color: "#64748b" }}>☰ LIST</button>
+                <button onClick={() => setViewMode("grid")} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded transition-colors" style={viewMode === "grid" ? { backgroundColor: ACCENT.blue, color: "#04241f" } : { color: "#64748b" }}>⊞ FINDER TILES</button>
               </div>
             </div>
 
@@ -2870,16 +2875,16 @@ function CommandWeeklyTaskTracker() {
                             <span className="font-mono text-[10px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ color: pm.id === "asap" ? "#fff" : pm.color, backgroundColor: pm.id === "asap" ? ACCENT.rose : pm.color + "1a", border: "1px solid " + pm.color + (pm.id === "asap" ? "" : "55") }}>{pm.label}</span>
                             {t.due && <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded" style={{ color: dueColor(t.due), backgroundColor: dueColor(t.due) + "14", border: "1px solid " + dueColor(t.due) + "44" }}>{dueLabelTxt(t.due)}</span>}
                             {t.assignedTo && (
-                              <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded bg-teal-950 text-teal-300 border border-teal-800">{getWorkerName(t.assignedTo)}</span>
+                              <span className="font-mono text-[10px] tracking-widest px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">{getWorkerName(t.assignedTo)}</span>
                             )}
                           </div>
                           <div className="flex flex-wrap items-center gap-2 mt-3 bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 w-fit">
                             <span className="font-mono text-sm font-bold tabular-nums tracking-wider flex items-center gap-2">
-                              <LiveTaskTimer task={t} active={running} style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }} />
+                              <LiveTaskTimer task={t} active={running} style={{ color: running ? ACCENT.blue : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }} />
                               <CollaboratorPopover task={t} active={running} shopSailors={shopSailors} currentUid={currentUid} userName={userName} />
                             </span>
-                            <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={running ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{running ? "❚❚ CLOCK OUT" : ms > 0 ? "▶ RESUME" : "▶ CLOCK IN"}</button>
-                            <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓ FINISH</button>
+                            <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={running ? { backgroundColor: ACCENT.gold + "22", color: ACCENT.gold, border: "1px solid " + ACCENT.gold + "66" } : { backgroundColor: ACCENT.blue + "22", color: ACCENT.blue, border: "1px solid " + ACCENT.blue + "66" }}>{running ? "❚❚ CLOCK OUT" : ms > 0 ? "▶ RESUME" : "▶ CLOCK IN"}</button>
+                            <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[10px] font-bold tracking-widest px-3 py-1 rounded" style={{ backgroundColor: ACCENT.blue, color: "#04241f" }}>✓ FINISH</button>
                           </div>
                           <TaskNotes task={t} onSaveNote={saveTaskNote} />
                         </div>
@@ -2927,12 +2932,12 @@ function CommandWeeklyTaskTracker() {
                       <div>
                         <div className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-800 rounded px-2.5 py-1 mb-2 w-fit">
                           <span className="font-mono text-xs font-bold tabular-nums tracking-wider flex items-center gap-1.5">
-                            <LiveTaskTimer task={t} active={running} style={{ color: running ? ACCENT.teal : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }} />
+                            <LiveTaskTimer task={t} active={running} style={{ color: running ? ACCENT.blue : ms > 0 ? "#94a3b8" : "#475569", animation: running ? "cwtt-timer-pulse 2s ease-in-out infinite" : "none" }} />
                             <CollaboratorPopover task={t} active={running} shopSailors={shopSailors} currentUid={currentUid} userName={userName} />
                           </span>
                           <div className="flex gap-1">
-                            <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={running ? { backgroundColor: ACCENT.amber + "22", color: ACCENT.amber, border: "1px solid " + ACCENT.amber + "66" } : { backgroundColor: ACCENT.teal + "22", color: ACCENT.teal, border: "1px solid " + ACCENT.teal + "66" }}>{running ? "❚❚" : "▶"}</button>
-                            <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ backgroundColor: ACCENT.teal, color: "#04241f" }}>✓</button>
+                            <button onClick={() => toggleCollaborativeTimer(t.id)} className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={running ? { backgroundColor: ACCENT.gold + "22", color: ACCENT.gold, border: "1px solid " + ACCENT.gold + "66" } : { backgroundColor: ACCENT.blue + "22", color: ACCENT.blue, border: "1px solid " + ACCENT.blue + "66" }}>{running ? "❚❚" : "▶"}</button>
+                            <button onClick={() => triggerAction('finish', t.id)} className="font-mono text-[9px] font-bold tracking-widest px-2 py-0.5 rounded" style={{ backgroundColor: ACCENT.blue, color: "#04241f" }}>✓</button>
                           </div>
                         </div>
                         <TaskNotes task={t} onSaveNote={saveTaskNote} compact />
@@ -2965,13 +2970,13 @@ function CommandWeeklyTaskTracker() {
                   return (
                     <div key={t.id} className="bg-slate-900/70 border border-white/10 rounded-lg p-3 flex items-start gap-3" style={{ borderLeft: "4px solid " + pm.color + "55" }}>
                       {!isRestrictedSailor && (
-                        <button onClick={() => uncheckTask(t.id, t.assignedTo)} className="mt-0.5 w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center" style={{ borderColor: ACCENT.teal, backgroundColor: ACCENT.teal }}><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5L5.5 11L12 3.5" stroke="#04241f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+                        <button onClick={() => uncheckTask(t.id, t.assignedTo)} className="mt-0.5 w-5 h-5 shrink-0 rounded border-2 flex items-center justify-center" style={{ borderColor: ACCENT.blue, backgroundColor: ACCENT.blue }}><svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7.5L5.5 11L12 3.5" stroke="#04241f" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-slate-400 line-through">{t.text}</p>
                         <div className="flex gap-2 mt-1.5 font-mono text-[10px] tracking-widest text-slate-500">
-                            <span style={{ color: ACCENT.teal }}>✓ {fmtStamp(t.completedAt)}</span>
-                            {totalTaskMs(t, Date.now()) > 0 && <span style={{ color: ACCENT.amber }}>⏱ {fmtDuration(totalTaskMs(t, Date.now()))}</span>}
+                            <span style={{ color: ACCENT.blue }}>✓ {fmtStamp(t.completedAt)}</span>
+                            {totalTaskMs(t, Date.now()) > 0 && <span style={{ color: ACCENT.gold }}>⏱ {fmtDuration(totalTaskMs(t, Date.now()))}</span>}
                         </div>
                         <TaskNotes task={t} onSaveNote={saveTaskNote} compact />
                       </div>
@@ -3000,10 +3005,10 @@ function CommandWeeklyTaskTracker() {
               <React.Fragment>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
                   <KpiCard label="COMPLETED" value={analytics.totalDone} sub="LIFETIME" />
-                  <KpiCard label="ON-TIME RATE" value={onTimeRate !== null ? onTimeRate + "%" : "—"} sub={analytics.onTime + " ON TIME / " + analytics.late + " LATE"} color={onTimeRate === null ? "#64748b" : onTimeRate >= 80 ? ACCENT.teal : onTimeRate >= 50 ? ACCENT.amber : ACCENT.rose} />
-                  <KpiCard label="MEDIAN LEAD" value={analytics.medianLead !== null ? Math.abs(analytics.medianLead).toFixed(1) + "d" : "—"} sub={analytics.medianLead === null ? "NO DATED TASKS" : analytics.medianLead >= 0 ? "EARLY (TYPICAL)" : "LATE (TYPICAL)"} color={analytics.medianLead === null ? "#64748b" : analytics.medianLead >= 0 ? ACCENT.teal : ACCENT.rose} />
-                  <KpiCard label="TIME TRACKED" value={analytics.totalTrackedMs > 0 ? fmtMinutes(analytics.totalTrackedMs) : "—"} sub="TOTAL SHOP HOURS" color={analytics.totalTrackedMs > 0 ? ACCENT.teal : "#64748b"} />
-                  <KpiCard label="WEEKDAY STREAK" value={analytics.currentStreak + "d"} sub={"BEST: " + analytics.bestStreak + "d"} color={analytics.currentStreak > 0 ? ACCENT.teal : "#64748b"} />
+                  <KpiCard label="ON-TIME RATE" value={onTimeRate !== null ? onTimeRate + "%" : "—"} sub={analytics.onTime + " ON TIME / " + analytics.late + " LATE"} color={onTimeRate === null ? "#64748b" : onTimeRate >= 80 ? ACCENT.blue : onTimeRate >= 50 ? ACCENT.gold : ACCENT.rose} />
+                  <KpiCard label="MEDIAN LEAD" value={analytics.medianLead !== null ? Math.abs(analytics.medianLead).toFixed(1) + "d" : "—"} sub={analytics.medianLead === null ? "NO DATED TASKS" : analytics.medianLead >= 0 ? "EARLY (TYPICAL)" : "LATE (TYPICAL)"} color={analytics.medianLead === null ? "#64748b" : analytics.medianLead >= 0 ? ACCENT.blue : ACCENT.rose} />
+                  <KpiCard label="TIME TRACKED" value={analytics.totalTrackedMs > 0 ? fmtMinutes(analytics.totalTrackedMs) : "—"} sub="TOTAL SHOP HOURS" color={analytics.totalTrackedMs > 0 ? ACCENT.blue : "#64748b"} />
+                  <KpiCard label="WEEKDAY STREAK" value={analytics.currentStreak + "d"} sub={"BEST: " + analytics.bestStreak + "d"} color={analytics.currentStreak > 0 ? ACCENT.blue : "#64748b"} />
                   <KpiCard label="PEAK WINDOW" value={analytics.peakBlock.count > 0 ? analytics.peakBlock.label : "—"} sub={analytics.busiestDay.count > 0 ? "BUSIEST DAY: " + analytics.busiestDay.label.toUpperCase() : "NO PATTERN YET"} />
                 </div>
 
@@ -3016,7 +3021,7 @@ function CommandWeeklyTaskTracker() {
                           <XAxis dataKey="name" tick={axisTickLight} />
                           <YAxis tick={axisTick} label={{ value: "hours", angle: -90, position: "insideLeft", fill: "#475569", fontSize: 9, fontFamily: "monospace" }} />
                           <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v) => [v + " hours", "Man-Hours"]} />
-                          <Bar dataKey="hours" name="Hours Logged" fill={ACCENT.teal} radius={[3, 3, 0, 0]}>
+                          <Bar dataKey="hours" name="Hours Logged" fill={ACCENT.blue} radius={[3, 3, 0, 0]}>
                             <LabelList dataKey="hours" position="top" formatter={(v) => v + "h"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
                           </Bar>
                         </BarChart>
@@ -3026,7 +3031,7 @@ function CommandWeeklyTaskTracker() {
                     )}
                   </ChartCard>
 
-                  <ChartCard title="TIME EFFICIENCY BY CATEGORY" subtitle="Average (teal) and total (amber) clocked minutes per label.">
+                  <ChartCard title="TIME EFFICIENCY BY CATEGORY" subtitle="Average (blue) and total (gold) clocked minutes per label.">
                     {analytics.timeByLabel.length > 0 ? (
                       <ResponsiveContainer width="100%" height={220}>
                         <BarChart data={analytics.timeByLabel} margin={{ top: 16, right: 4, left: -20, bottom: 0 }}>
@@ -3035,10 +3040,10 @@ function CommandWeeklyTaskTracker() {
                           <YAxis tick={axisTick} label={{ value: "minutes", angle: -90, position: "insideLeft", fill: "#475569", fontSize: 9, fontFamily: "monospace" }} />
                           <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} formatter={(v, name) => [v + " min", name]} labelFormatter={(label, payload) => { const p = payload && payload[0] && payload[0].payload; return p ? label + " (" + p.count + " task" + (p.count === 1 ? "" : "s") + ")" : label; }} />
                           <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
-                          <Bar dataKey="avgMin" name="Avg per task" fill={ACCENT.teal} radius={[3, 3, 0, 0]}>
+                          <Bar dataKey="avgMin" name="Avg per task" fill={ACCENT.blue} radius={[3, 3, 0, 0]}>
                             <LabelList dataKey="avgMin" position="top" formatter={(v) => v + "m"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
                           </Bar>
-                          <Bar dataKey="totalMin" name="Total" fill={ACCENT.amber} radius={[3, 3, 0, 0]}>
+                          <Bar dataKey="totalMin" name="Total" fill={ACCENT.gold} radius={[3, 3, 0, 0]}>
                             <LabelList dataKey="totalMin" position="top" formatter={(v) => v + "m"} style={{ fill: "#94a3b8", fontSize: 9, fontFamily: "monospace" }} />
                           </Bar>
                         </BarChart>
@@ -3047,24 +3052,24 @@ function CommandWeeklyTaskTracker() {
                       <p className="text-xs text-slate-600 font-mono py-6 text-center">Clock time on a task with ▶ CLOCK IN, then ✓ FINISH it.</p>
                     )}
                     {analytics.slowest && (
-                      <p className="font-mono text-[10px] tracking-widest text-slate-500 mt-2">HEAVIEST CATEGORY: <span style={{ color: ACCENT.amber }}>#{analytics.slowest.label}</span> AT {analytics.slowest.avgMin} MIN AVG</p>
+                      <p className="font-mono text-[10px] tracking-widest text-slate-500 mt-2">HEAVIEST CATEGORY: <span style={{ color: ACCENT.gold }}>#{analytics.slowest.label}</span> AT {analytics.slowest.avgMin} MIN AVG</p>
                     )}
                   </ChartCard>
 
-                  <ChartCard wide title={"DAILY THROUGHPUT — LAST " + chartRange + " DAYS"} subtitle="Bars: tasks completed per day. Line: 7-day rolling average." action={<div className="flex gap-1">{[14, 30].map((r) => (<button key={r} onClick={() => setChartRange(r)} className="font-mono text-[10px] font-bold tracking-widest px-2.5 py-1 rounded" style={chartRange === r ? { backgroundColor: ACCENT.teal, color: "#04241f" } : { color: "#64748b", border: "1px solid #334155" }}>{r}D</button>))}</div>}>
+                  <ChartCard wide title={"DAILY THROUGHPUT — LAST " + chartRange + " DAYS"} subtitle="Bars: tasks completed per day. Line: 7-day rolling average." action={<div className="flex gap-1">{[14, 30].map((r) => (<button key={r} onClick={() => setChartRange(r)} className="font-mono text-[10px] font-bold tracking-widest px-2.5 py-1 rounded" style={chartRange === r ? { backgroundColor: ACCENT.blue, color: "#04241f" } : { color: "#64748b", border: "1px solid #334155" }}>{r}D</button>))}</div>}>
                     <ResponsiveContainer width="100%" height={200}>
                       <ComposedChart data={analytics.byDay30.slice(-chartRange)} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                         <XAxis dataKey="label" tick={axisTick} interval={chartRange === 30 ? 3 : 1} />
                         <YAxis allowDecimals={false} tick={axisTick} />
                         <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
-                        <Bar dataKey="count" name="Completed" fill={ACCENT.teal} radius={[3, 3, 0, 0]} />
-                        <Line type="monotone" dataKey="avg7" name="7-day avg" stroke={ACCENT.amber} strokeWidth={2} dot={false} />
+                        <Bar dataKey="count" name="Completed" fill={ACCENT.blue} radius={[3, 3, 0, 0]} />
+                        <Line type="monotone" dataKey="avg7" name="7-day avg" stroke={ACCENT.gold} strokeWidth={2} dot={false} />
                       </ComposedChart>
                     </ResponsiveContainer>
                   </ChartCard>
 
-                  <ChartCard wide title="LEAD TIME PER TASK — LAST 12 DATED COMPLETIONS" subtitle="Days ahead of (teal) or behind (rose) the deadline.">
+                  <ChartCard wide title="LEAD TIME PER TASK — LAST 12 DATED COMPLETIONS" subtitle="Days ahead of (blue) or behind (rose) the deadline.">
                     {analytics.leadPerTask.length > 0 ? (
                       <ResponsiveContainer width="100%" height={Math.max(160, analytics.leadPerTask.length * 28 + 40)}>
                         <BarChart data={analytics.leadPerTask} layout="vertical" margin={{ top: 4, right: 36, left: 8, bottom: 0 }}>
@@ -3084,7 +3089,7 @@ function CommandWeeklyTaskTracker() {
                     )}
                   </ChartCard>
 
-                  <ChartCard title="RELIABILITY BY PRIORITY" subtitle="On-time (teal) vs late (rose) per tier.">
+                  <ChartCard title="RELIABILITY BY PRIORITY" subtitle="On-time (blue) vs late (rose) per tier.">
                     <ResponsiveContainer width="100%" height={190}>
                       <BarChart data={analytics.priorityReliability} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -3092,7 +3097,7 @@ function CommandWeeklyTaskTracker() {
                         <YAxis allowDecimals={false} tick={axisTick} />
                         <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
                         <Legend wrapperStyle={{ fontSize: "10px", fontFamily: "monospace" }} />
-                        <Bar dataKey="onTime" name="On time" stackId="r" fill={ACCENT.teal} />
+                        <Bar dataKey="onTime" name="On time" stackId="r" fill={ACCENT.blue} />
                         <Bar dataKey="late" name="Late" stackId="r" fill={ACCENT.rose} radius={[3, 3, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -3107,7 +3112,7 @@ function CommandWeeklyTaskTracker() {
                         <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
                         <Bar dataKey="count" name="Completed" radius={[3, 3, 0, 0]}>
                           {analytics.byWeekday.map((d, i) => (
-                            <Cell key={i} fill={d.label === analytics.busiestDay.label && d.count > 0 ? ACCENT.amber : ACCENT.teal} />
+                            <Cell key={i} fill={d.label === analytics.busiestDay.label && d.count > 0 ? ACCENT.gold : ACCENT.blue} />
                           ))}
                         </Bar>
                       </BarChart>
@@ -3123,7 +3128,7 @@ function CommandWeeklyTaskTracker() {
                         <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#1e293b66" }} />
                         <Bar dataKey="count" name="Completed" radius={[3, 3, 0, 0]}>
                           {analytics.byHourBlock.map((d, i) => (
-                            <Cell key={i} fill={d.label === analytics.peakBlock.label && d.count > 0 ? ACCENT.amber : ACCENT.teal} />
+                            <Cell key={i} fill={d.label === analytics.peakBlock.label && d.count > 0 ? ACCENT.gold : ACCENT.blue} />
                           ))}
                         </Bar>
                       </BarChart>
@@ -3146,7 +3151,7 @@ function CommandWeeklyTaskTracker() {
           <p className="font-mono text-xs text-slate-600 tracking-widest text-center">made by AZ2 Medrano, thank an AZ for showing up to work today :-)</p>
           <div className="flex flex-wrap justify-center gap-4">
               <button onClick={() => setManagingLabels(true)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-slate-500 hover:text-white transition-colors ease-apple duration-300 border border-white/10 bg-slate-900/70 rounded-full">[ MANAGE LABELS ]</button>
-              <button onClick={() => setShowChangeNameModal(true)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-teal-400 hover:text-white transition-colors ease-apple duration-300 border border-white/10 bg-slate-900/70 rounded-full">[ CHANGE NAME ]</button>
+              <button onClick={() => setShowChangeNameModal(true)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-blue-400 hover:text-white transition-colors ease-apple duration-300 border border-white/10 bg-slate-900/70 rounded-full">[ CHANGE NAME ]</button>
               <button onClick={() => { window.localStorage.clear(); window.location.reload(); }} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-slate-500 hover:text-rose-500 transition-colors ease-apple duration-300 border border-white/10 bg-slate-900/70 rounded-full">[ FACTORY RESET ]</button>
               {!askingName && window.auth && (
                   <button onClick={() => triggerAction('signout', null)} className="font-mono text-[10px] tracking-widest px-3 py-1 rounded text-rose-400 hover:text-white transition-colors border border-rose-900 bg-rose-950/40">[ SIGN OUT ]</button>
